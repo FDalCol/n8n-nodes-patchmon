@@ -9,7 +9,7 @@ import type {
 	INodeProperties,
 } from 'n8n-workflow';
 
-import { authorizationFor, preAuthenticate } from '../nodes/PatchMon/shared/auth';
+import { authorizationFor, CREDENTIAL_TEST_HEADER, credentialTestProblem, preAuthenticate } from '../nodes/PatchMon/shared/auth';
 
 /**
  * Integration API token (Basic Auth, only for /api/v1/api/*) and an optional service user for the
@@ -60,7 +60,7 @@ export class PatchMonApi implements ICredentialType {
 		},
 		{
 			displayName:
-				'Service user (optional): needed only for host groups, repositories, patch policies and patching. Use a dedicated local user without MFA whose role has only can_view_hosts and can_manage_patching.',
+				'Service user (optional): needed only for host groups, repositories, patch policies and patching. Use a dedicated local user without MFA whose role has can_view_hosts, plus can_manage_patching only if n8n should start, approve or cancel patch runs.',
 			name: 'serviceUserNotice',
 			type: 'notice',
 			default: '',
@@ -98,6 +98,13 @@ export class PatchMonApi implements ICredentialType {
 			typeOptions: { password: true },
 			default: '',
 		},
+		{
+			displayName: 'Session Permissions',
+			name: 'sessionPermissions',
+			type: 'hidden',
+			// The service user's permissions read at the last sign-in (for the credential test)
+			default: '',
+		},
 	];
 
 	async preAuthentication(this: IHttpRequestHelper, credentials: ICredentialDataDecryptedObject): Promise<IDataObject> {
@@ -108,20 +115,25 @@ export class PatchMonApi implements ICredentialType {
 		credentials: ICredentialDataDecryptedObject,
 		requestOptions: IHttpRequestOptions,
 	): Promise<IHttpRequestOptions> => {
+		const headers: IDataObject = { ...(requestOptions.headers ?? {}) };
+		// Only the credential test request carries this header; it never reaches PatchMon
+		const markers = Object.keys(headers).filter((k) => k.toLowerCase() === CREDENTIAL_TEST_HEADER);
+		for (const key of markers) delete headers[key];
+		if (markers.length) {
+			const problem = credentialTestProblem(credentials);
+			if (problem) throw new Error(problem);
+		}
 		const authorization = authorizationFor(credentials, requestOptions);
-		if (!authorization) return requestOptions;
-		return {
-			...requestOptions,
-			headers: {
-				...(requestOptions.headers ?? {}),
-				Authorization: authorization,
-			},
-		};
+		if (!authorization && !markers.length) return requestOptions;
+		if (authorization) headers.Authorization = authorization;
+		return { ...requestOptions, headers };
 	};
 
 	/**
 	 * Checks the Integration API token with GET /api/v1/api/hosts. When a service user is set,
-	 * n8n first runs preAuthentication, which signs in and checks the user's permissions.
+	 * n8n first runs preAuthentication, which signs in and reads the user's permissions; the
+	 * test fails if the role lacks can_view_hosts (a missing can_manage_patching is reported by
+	 * the operations that need it).
 	 */
 	test: ICredentialTestRequest = {
 		request: {
@@ -133,6 +145,7 @@ export class PatchMonApi implements ICredentialType {
 			method: 'GET',
 			headers: {
 				Accept: 'application/json',
+				'X-N8n-PatchMon-Credential-Test': '1',
 			},
 			disableFollowRedirect: true,
 			maxResponseBodyBytes: 16 * 1024 * 1024,

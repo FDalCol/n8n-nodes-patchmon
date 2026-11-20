@@ -27,8 +27,23 @@ export const PERMISSIONS_PATH = '/api/v1/permissions/user-permissions';
 /** Needs a valid session and no permission: used to renew an expired token. */
 export const PROFILE_PATH = '/api/v1/auth/profile';
 
-/** Permissions the service user needs for the patching operations of this node. */
-export const REQUIRED_PERMISSIONS = ['can_view_hosts', 'can_manage_patching'] as const;
+/** Permissions of the service user that this node uses. */
+export const NODE_PERMISSIONS = ['can_view_hosts', 'can_manage_patching'];
+
+/** Header of the credential test request only: removed by authenticate() before sending. */
+export const CREDENTIAL_TEST_HEADER = 'x-n8n-patchmon-credential-test';
+
+/**
+ * The credential test fails when the service user cannot read hosts: every service user
+ * operation needs can_view_hosts. preAuthentication runs before the test request and stores
+ * the permissions it read in `sessionPermissions`.
+ */
+export function credentialTestProblem(raw: ICredentialDataDecryptedObject): string | undefined {
+	if (!hasServiceUser(raw)) return undefined;
+	const granted = String(raw.sessionPermissions ?? '').split(',');
+	if (granted.includes('can_view_hosts')) return undefined;
+	return "The service user's role is missing the permission can_view_hosts, which every service user operation needs. Give it to the role in PatchMon.";
+}
 
 const SIGN_IN_TIMEOUT_MS = 30_000;
 const SIGN_IN_MAX_BYTES = 1024 * 1024;
@@ -104,6 +119,10 @@ export function credentialSecrets(raw: ICredentialDataDecryptedObject): { secret
  */
 export function integrationCredentials(raw: ICredentialDataDecryptedObject): ICredentialDataDecryptedObject {
 	return { baseUrl: raw.baseUrl, tokenKey: raw.tokenKey, tokenSecret: raw.tokenSecret };
+}
+
+export function hasPermission(permissions: IDataObject, permission: string): boolean {
+	return permissions[permission] === true;
 }
 
 /** `Basic base64(key:secret)`, or an error that names the field without its value. */
@@ -304,35 +323,33 @@ function signInFailure(res: SignInResponse, secrets: string[]): PatchMonSignInEr
 	return error;
 }
 
-/** Checks the permissions the patching operations need; throws a clear error when one is missing. */
-function checkPermissions(res: SignInResponse, secrets: string[]): void {
+/**
+ * The permissions of the service user's role that this node uses. Missing permissions never make
+ * the sign-in fail: operations check them before they act, and the credential test reports them.
+ * A sign-in that PatchMon blocks (two-factor enrolment, temporary password) still fails here.
+ */
+function readPermissions(res: SignInResponse, secrets: string[]): string[] {
 	if (res.statusCode === 403) {
 		const code = errorCode(res.data);
-		throw new PatchMonSignInError(
-			code === 'TFA_ENROLMENT_REQUIRED'
-				? 'The service user must set up two-factor authentication before it can use PatchMon'
-				: code === 'PASSWORD_CHANGE_REQUIRED'
-					? 'The service user must replace its temporary password before it can use PatchMon'
-					: `PatchMon found no permissions for the service user's role (403)${errorDetail(res.data) ? `: ${redactString(errorDetail(res.data), secrets)}` : ''}`,
-			code
-				? 'Sign in once in the PatchMon web UI with this user and complete the required step, or use a user without that requirement.'
-				: 'Assign a role with can_view_hosts and can_manage_patching to the service user.',
-		);
+		if (code === 'TFA_ENROLMENT_REQUIRED' || code === 'PASSWORD_CHANGE_REQUIRED') {
+			throw new PatchMonSignInError(
+				code === 'TFA_ENROLMENT_REQUIRED'
+					? 'The service user must set up two-factor authentication before it can use PatchMon'
+					: 'The service user must replace its temporary password before it can use PatchMon',
+				'Sign in once in the PatchMon web UI with this user and complete the required step, or use a user without that requirement.',
+			);
+		}
+		// "No permissions found": the role has no permission at all
+		return [];
 	}
 	if (res.statusCode < 200 || res.statusCode >= 300 || !res.data || typeof res.data !== 'object') {
 		throw new PatchMonSignInError(
-			`Could not read the service user's permissions (HTTP ${res.statusCode})`,
+			redactString(`Could not read the service user's permissions (HTTP ${res.statusCode})`, secrets),
 			'Check that the Base URL points to PatchMon 2.x.',
 		);
 	}
 	const perms = res.data as IDataObject;
-	const missing = REQUIRED_PERMISSIONS.filter((p) => perms[p] !== true);
-	if (missing.length) {
-		throw new PatchMonSignInError(
-			`The service user's role is missing the permission${missing.length > 1 ? 's' : ''} ${missing.join(', ')}`,
-			'Give the role of the service user can_view_hosts (read hosts, runs and policies) and can_manage_patching (start, approve and cancel patch runs) in PatchMon under Settings > Roles.',
-		);
-	}
+	return NODE_PERMISSIONS.filter((p) => perms[p] === true);
 }
 
 /**
@@ -376,8 +393,11 @@ export async function preAuthenticate(
 		const res = await permissions(saved);
 		// Sign in again only when PatchMon no longer accepts the token
 		if (res.statusCode !== 401) {
-			checkPermissions(res, secrets);
-			return { sessionToken: saved, sessionTokenFingerprint: sessionTokenFingerprint(baseUrl, user, pass, saved) };
+			return {
+				sessionToken: saved,
+				sessionTokenFingerprint: sessionTokenFingerprint(baseUrl, user, pass, saved),
+				sessionPermissions: readPermissions(res, secrets).join(','),
+			};
 		}
 	}
 
@@ -418,6 +438,10 @@ export async function preAuthenticate(
 			'Check that the Base URL points to PatchMon 2.x.',
 		);
 	}
-	checkPermissions(await permissions(token), [...secrets, token]);
-	return { sessionToken: token, sessionTokenFingerprint: sessionTokenFingerprint(baseUrl, user, pass, token) };
+	const granted = readPermissions(await permissions(token), [...secrets, token]);
+	return {
+		sessionToken: token,
+		sessionTokenFingerprint: sessionTokenFingerprint(baseUrl, user, pass, token),
+		sessionPermissions: granted.join(','),
+	};
 }

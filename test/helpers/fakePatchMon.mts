@@ -461,6 +461,7 @@ export class FakePatchMon {
 		});
 		this.on('GET', '/api/v1/auth/profile', () => ({ json: { user: { id: 'user-n8n', username: USERNAME } } }));
 		this.on('GET', '/api/v1/permissions/user-permissions', () => {
+			if (!this.permissions.size) return { status: 403, json: { error: 'No permissions found' } };
 			const all = ['can_view_dashboard', 'can_view_hosts', 'can_manage_hosts', 'can_view_packages', 'can_manage_patching'];
 			return { json: Object.fromEntries(all.map((p) => [p, this.permissions.has(p)])) };
 		});
@@ -514,6 +515,8 @@ export class FakePatchMon {
 			return { json: { host_id: h.id, host_name: h.friendly_name, run_at_iso: new Date(Date.now() + h.policyDelayMinutes * 60_000).toISOString(), policy_name: 'Default (immediate)', patch_delay_type: 'immediate' } };
 		});
 		this.on('GET', '/api/v1/patching/runs', (req) => {
+			const denied = this.perm('can_view_hosts');
+			if (denied) return denied;
 			const limit = Math.max(1, Math.min(200, Number(req.query.get('limit') ?? 50)));
 			const offset = Math.max(0, Number(req.query.get('offset') ?? 0));
 			const status = req.query.get('status') ?? '';
@@ -529,13 +532,15 @@ export class FakePatchMon {
 			};
 		});
 		this.on('GET', '/api/v1/patching/runs/{id}', (_r, p) => {
+			const denied = this.perm('can_view_hosts');
+			if (denied) return denied;
 			const run = this.runs.find((r) => r.id === p.id);
 			if (!run) return { status: 404, json: { error: 'Patch run not found' } };
 			if (this.autoAdvance) this.advance(run);
 			return { json: { ...this.runJson(run), items: [], package_ids: {} } };
 		});
 		// Registered after /runs/{id}: the last registered route wins
-		this.on('GET', '/api/v1/patching/runs/active', () => ({
+		this.on('GET', '/api/v1/patching/runs/active', () => this.perm('can_view_hosts') ?? ({
 			json: { runs: this.runs.filter((r) => ACTIVE_LIST.includes(r.status)).map((r) => this.runJson(r)) },
 		}));
 		this.on('POST', '/api/v1/patching/runs/{id}/stop', (_r, p) => {

@@ -34,8 +34,10 @@ describe('credential', () => {
 			'password',
 			'sessionToken',
 			'sessionTokenFingerprint',
+			'sessionPermissions',
 		]);
 		expect(credentialType.name).toBe('patchMonApi');
+		expect(byName.sessionPermissions).toMatchObject({ type: 'hidden', default: '' });
 		expect(credentialType.displayName).toBe('PatchMon API');
 		expect(byName.tokenSecret.typeOptions).toEqual({ password: true });
 		expect(byName.password.typeOptions).toEqual({ password: true });
@@ -58,6 +60,10 @@ describe('credential', () => {
 			sessionTokenFingerprint: sessionTokenFingerprint(base, USERNAME, PASSWORD, token),
 		};
 		const header = async (url: string, baseURL?: string) => (await authenticate(creds, { url, baseURL })).headers?.Authorization;
+		// The credential test marker is removed and never makes an ordinary request fail
+		const marked = await authenticate({ ...creds, sessionPermissions: 'can_view_hosts' }, { url: `${base}/api/v1/api/hosts`, headers: { 'X-N8n-PatchMon-Credential-Test': '1', Accept: 'x' } });
+		expect(marked.headers).toEqual({ Accept: 'x', Authorization: BASIC });
+		await expect(authenticate(creds, { url: `${base}/api/v1/api/hosts`, headers: { 'x-n8n-patchmon-credential-test': '1' } })).rejects.toThrow(/can_view_hosts/);
 		expect(await header(`${base}/api/v1/api/hosts`)).toBe(BASIC);
 		expect(await header('/api/v1/api/hosts', base)).toBe(BASIC);
 		expect(await header(`${base}/api/v1/patching/runs`)).toBe(`Bearer ${token}`);
@@ -132,12 +138,6 @@ describe('credential', () => {
 		expect(mfa.message).not.toContain('ticket-should-not-leak');
 		server.userTfa = false;
 
-		server.permissions = new Set(['can_view_hosts']);
-		expect((await runCredentialTest(credentials(server))).message).toMatch(/missing the permission can_manage_patching/);
-		server.permissions = new Set();
-		expect((await runCredentialTest(credentials(server))).message).toMatch(/missing the permissions can_view_hosts, can_manage_patching/);
-		server.permissions = new Set(['can_view_hosts', 'can_manage_patching']);
-
 		server.localAuthDisabled = true;
 		expect((await runCredentialTest(credentials(server))).message).toMatch(/refused the sign-in \(403\): Local authentication is disabled/);
 		server.localAuthDisabled = false;
@@ -152,6 +152,31 @@ describe('credential', () => {
 
 		server.tfaEnrolmentRequired = true;
 		expect((await runCredentialTest(credentials(server))).message).toMatch(/set up two-factor authentication first/);
+	});
+
+	it('fails only when the service user lacks can_view_hosts; can_manage_patching is optional', async () => {
+		server.permissions = new Set(['can_view_hosts']);
+		const readOnly = credentials(server);
+		expect(await runCredentialTest(readOnly)).toEqual({ status: 'OK', message: 'Connection successful!' });
+		expect(readOnly.sessionPermissions).toBe('can_view_hosts');
+
+		server.permissions = new Set(['can_manage_patching']);
+		const noView = credentials(server);
+		const err = await runCredentialTest(noView);
+		expect(err).toEqual({ status: 'Error', message: expect.stringMatching(/^The service user's role is missing the permission can_view_hosts/) });
+		// The sign-in itself succeeded and its token is kept
+		expect(noView.sessionToken).toBe(server.issuedTokens.at(-1));
+
+		server.permissions = new Set();
+		expect((await runCredentialTest(credentials(server))).message).toMatch(/missing the permission can_view_hosts/);
+
+		// The test marker never reaches PatchMon, and only the test request carries it
+		expect(server.requests.some((r) => 'x-n8n-patchmon-credential-test' in r.headers)).toBe(false);
+	});
+
+	it('the Integration API test does not need a service user permission check', async () => {
+		server.permissions = new Set();
+		expect((await runCredentialTest(integrationOnly(server))).status).toBe('OK');
 	});
 
 	it('requires both Username and Password for the service user', async () => {

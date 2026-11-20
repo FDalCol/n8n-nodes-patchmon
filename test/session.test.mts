@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { FakePatchMon, HOST_A } from './helpers/fakePatchMon.mts';
+import { FakePatchMon, HOST_A, HOST_B } from './helpers/fakePatchMon.mts';
 import { credentials, credentialSaves, integrationOnly, runNodeError, runNodeJson } from './helpers/harness.mts';
 
 let server: FakePatchMon;
@@ -70,14 +70,11 @@ describe('service user session', () => {
 		expect(server.logins).toHaveLength(2);
 	});
 
-	it('reports MFA, missing permissions and the lockout without leaking secrets', async () => {
+	it('reports MFA and the lockout without leaking secrets', async () => {
 		server.userTfa = true;
 		const mfa = await runNodeError({ credentials: credentials(server), params: getRuns });
 		expect(mfa.message).toMatch(/MFA/);
 		server.userTfa = false;
-		server.permissions = new Set(['can_view_hosts']);
-		expect((await runNodeError({ credentials: credentials(server), params: getRuns })).message).toMatch(/can_manage_patching/);
-		server.permissions = new Set(['can_view_hosts', 'can_manage_patching']);
 		server.lockedOut = true;
 		const locked = await runNodeError({ credentials: credentials(server), params: getRuns });
 		expect(locked.message).toMatch(/429/);
@@ -90,15 +87,60 @@ describe('service user session', () => {
 		expect(server.requests).toHaveLength(0);
 	});
 
-	it('explains a 403 from a missing permission with the permission name', async () => {
-		const stored = credentials(server);
-		await runNodeJson({ credentials: stored, params: getRuns });
+	it('missing permissions never make the sign-in fail', async () => {
 		server.permissions = new Set(['can_view_hosts']);
-		const err = await runNodeError({
-			credentials: stored,
-			params: { resource: 'patching', operation: 'cancelRun', runId: server.addRun(HOST_A, 'queued').id },
-		});
+		const stored = credentials(server);
+		expect(await runNodeJson({ credentials: stored, params: getRuns })).toEqual([]);
+		expect(stored.sessionPermissions).toBe('can_view_hosts');
+		server.permissions = new Set();
+		const none = credentials(server);
+		const err = await runNodeError({ credentials: none, params: getRuns });
+		// Signed in; PatchMon itself refuses the read
+		expect(none.sessionToken).toBe(server.issuedTokens.at(-1));
 		expect(err.message).toBe('PatchMon API error 403: Insufficient permissions');
-		expect(err.description).toMatch(/can_manage_patching/);
+		expect(err.description).toMatch(/needs the permission can_view_hosts/);
+	});
+
+	it('operations that change PatchMon check can_manage_patching before calling the server', async () => {
+		server.permissions = new Set(['can_view_hosts']);
+		const stored = credentials(server);
+		const run = server.addRun(HOST_A, 'pending_approval');
+		const cases: Array<[Record<string, unknown>, string]> = [
+			[{ resource: 'patching', operation: 'triggerPatch', hostId: HOST_A, patchType: 'patch_all' }, 'Trigger Patch'],
+			[{ resource: 'patching', operation: 'triggerPatch', hostId: HOST_A, patchType: 'patch_package', packageNames: 'openssl', dryRun: true }, 'Trigger Patch'],
+			[{ resource: 'patching', operation: 'approveRun', runId: run.id }, 'Approve Run'],
+			[{ resource: 'patching', operation: 'cancelRun', runId: run.id }, 'Cancel Run'],
+			[{ resource: 'patching', operation: 'patchSecurityUpdates', target: 'all' }, 'Patch Security Updates'],
+		];
+		for (const [params, what] of cases) {
+			const err = await runNodeError({ credentials: stored, params });
+			expect(err.message).toBe(`${what} needs the permission can_manage_patching, which the service user's role does not have: nothing was changed in PatchMon`);
+			expect(err.description).toMatch(/Give can_manage_patching to the role/);
+		}
+		const sent = server.requests.map((r) => `${r.method} ${r.path}`);
+		expect(sent.filter((r) => r.startsWith('POST /api/v1/patching'))).toEqual([]);
+		// Patch Security Updates fails before reading hosts or packages
+		expect(sent.filter((r) => r.includes('/api/v1/api/'))).toEqual([]);
+		expect(run.status).toBe('pending_approval');
+	});
+
+	it('Patch Security Updates with Dry Run works without can_manage_patching', async () => {
+		server.permissions = new Set(['can_view_hosts']);
+		const out = await runNodeJson({ credentials: credentials(server), params: { resource: 'patching', operation: 'patchSecurityUpdates', target: 'all', dryRun: true } });
+		expect(out.filter((r) => r.status === 'would_start')).toHaveLength(2);
+		expect(server.requestsTo('GET', '/api/v1/permissions/user-permissions')).toHaveLength(1);
+	});
+
+	it('reads the permissions once per execution', async () => {
+		const stored = credentials(server);
+		const trigger = { resource: 'patching', operation: 'triggerPatch', patchType: 'patch_all' };
+		await runNodeJson({ credentials: stored, params: [{ ...trigger, hostId: HOST_A }, { ...trigger, hostId: HOST_B }] });
+		expect(server.triggers).toHaveLength(2);
+		// one read by the sign-in (stored for the credential test), one by the execution
+		expect(server.requestsTo('GET', '/api/v1/permissions/user-permissions')).toHaveLength(2);
+		// A role changed in PatchMon is seen by the next execution
+		server.permissions = new Set(['can_view_hosts']);
+		const err = await runNodeError({ credentials: stored, params: { ...trigger, hostId: HOST_A } });
+		expect(err.message).toMatch(/needs the permission can_manage_patching/);
 	});
 });

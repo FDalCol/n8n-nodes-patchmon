@@ -98,6 +98,9 @@ export async function patchSecurityUpdates(ctx: OperationContext): Promise<IData
 	const excludeHosts = new Set(ctx.guard(() => toList(options.excludeHosts, MAX_HOSTS_PER_RUN)).map((s) => s.toLowerCase()));
 	const excludeGroups = new Set(ctx.guard(() => toList(options.excludeGroups, 100).map(validateGroupRef)).map((s) => s.toLowerCase()));
 
+	// Checked first: without it nothing would be started, so nothing is read either
+	if (!dryRun) await client.requirePermission('can_manage_patching', 'Patch Security Updates');
+
 	// Phase 1: reads only. Any failure here (except a host that no longer exists) stops the node.
 	const results: HostResult[] = [];
 	const hosts = await listHosts(client, groups, true);

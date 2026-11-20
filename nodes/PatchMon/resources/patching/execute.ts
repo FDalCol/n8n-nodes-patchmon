@@ -106,6 +106,7 @@ async function triggerPatch(ctx: OperationContext): Promise<OperationResult> {
 	if (ctx.bool('runImmediately')) body.schedule_override = 'immediate';
 	const skipIfActive = ctx.bool('skipIfRunActive', true);
 	const wait = pendingApproval ? undefined : waitSettings(ctx);
+	await client.requirePermission('can_manage_patching', 'Trigger Patch');
 
 	if (skipIfActive) {
 		const active = blockingRunsByHost(await getActiveRuns(client)).get(hostId) ?? [];
@@ -142,6 +143,7 @@ async function approveRun(ctx: OperationContext): Promise<OperationResult> {
 	const client = ctx.client;
 	const path = ctx.guard(() => runPath(ctx.str('runId'), 'approve'));
 	const wait = waitSettings(ctx);
+	await client.requirePermission('can_manage_patching', 'Approve Run');
 	const body = ctx.bool('runImmediately') ? { schedule_override: 'immediate' } : undefined;
 	const answer = await client.session<IDataObject>('POST', path, { body, permission: 'can_manage_patching' });
 	return data(await maybeWait(ctx, answer ?? {}, wait));
@@ -149,6 +151,7 @@ async function approveRun(ctx: OperationContext): Promise<OperationResult> {
 
 async function cancelRun(ctx: OperationContext): Promise<OperationResult> {
 	const runId = ctx.guard(() => validateUuid(ctx.str('runId'), 'Run ID'));
+	await ctx.client.requirePermission('can_manage_patching', 'Cancel Run');
 	const answer = await ctx.client.session<IDataObject>('POST', runPath(runId, 'stop'), { permission: 'can_manage_patching' });
 	return data({ run_id: runId, cancelled: answer?.ok === true, cancelled_via: answer?.cancelled_via ?? null });
 }

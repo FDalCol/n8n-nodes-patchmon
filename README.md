@@ -56,7 +56,8 @@ secret: PatchMon shows the secret once. The node never uses `host: delete`.
 PatchMon exposes patching, policies, host groups and repositories only through the API of its
 web UI, which needs a signed-in user. Create a dedicated local user for n8n:
 
-- a role with only `can_view_hosts` and `can_manage_patching`;
+- a role with `can_view_hosts` (needed by every service user operation), plus
+  `can_manage_patching` only if n8n should start, approve or cancel patch runs;
 - a long random password and **no MFA**: n8n cannot answer a two-factor prompt;
 - local sign-in enabled (an SSO-only user cannot be used).
 
@@ -66,12 +67,17 @@ is sent as `Authorization: Bearer` only to the Base URL and user it was issued f
 uses the same `X-Device-ID`, so PatchMon reuses one session for n8n. Access tokens last one hour
 by default (`JWT_EXPIRES_IN`); after that the next request signs in again.
 
+Missing permissions never make the sign-in fail. Trigger Patch, Approve Run, Cancel Run and
+Patch Security Updates (without Dry Run) read the role's permissions once per execution and stop
+before sending anything when `can_manage_patching` is missing, with an error that names it.
+
 ### Credential test
 
 The test calls `GET /api/v1/api/hosts` with the token. With a service user, it first signs in and
-checks that the role has `can_view_hosts` and `can_manage_patching`. It reports a wrong token
-(401), a missing scope or IP restriction (403), a wrong password, MFA, missing permissions,
-local sign-in turned off and the sign-in lockout (429).
+reads the role's permissions: it fails if `can_view_hosts` is missing, while a missing
+`can_manage_patching` is reported by the operations that need it. It also reports a wrong token
+(401), a missing scope or IP restriction (403), a wrong password, MFA, local sign-in turned off
+and the sign-in lockout (429).
 
 ## Node: PatchMon
 
@@ -84,10 +90,10 @@ local sign-in turned off and the sign-in lockout (429).
 | Repository | Get Many (host, search, status, type), Get, Get by Host | `GET /api/v1/repositories…` | Service user | `can_view_hosts` |
 | Patch Policy | Get Many, Get | `GET /api/v1/patching/policies[/{id}]` | Service user | `can_view_hosts` |
 | Patching | Get Runs, Get Active Runs, Get Run, Preview Run | `GET /api/v1/patching/runs…`, `/preview-run` | Service user | `can_view_hosts` |
-| Patching | Trigger Patch | `POST /api/v1/patching/trigger` | Service user | `can_manage_patching` |
-| Patching | Approve Run | `POST /api/v1/patching/runs/{id}/approve` | Service user | `can_manage_patching` |
+| Patching | Trigger Patch | `POST /api/v1/patching/trigger` | Service user | `can_manage_patching`; `can_view_hosts` for Skip If Run Active and Wait For Completion |
+| Patching | Approve Run | `POST /api/v1/patching/runs/{id}/approve` | Service user | `can_manage_patching`; `can_view_hosts` for Wait For Completion |
 | Patching | Cancel Run | `POST /api/v1/patching/runs/{id}/stop` | Service user | `can_manage_patching` |
-| Patching | Patch Security Updates | the reads above, then `POST /api/v1/patching/trigger` | Both | `host: get`, `can_view_hosts`, `can_manage_patching` |
+| Patching | Patch Security Updates | the reads above, then `POST /api/v1/patching/trigger` | Both | `host: get`, `can_view_hosts`, `can_manage_patching` (not needed with Dry Run) |
 | Custom API Call | Method, path, query, JSON body | `/api/v1/api/*` or other `/api/v1/*` | Chosen | Depends on the route |
 
 The service user operations use PatchMon's internal web UI API. It is not a public API and can

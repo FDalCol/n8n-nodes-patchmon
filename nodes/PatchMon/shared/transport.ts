@@ -14,8 +14,10 @@ import {
 import {
 	credentialSecrets,
 	findSignInError,
+	hasPermission,
 	hasServiceUser,
 	integrationCredentials,
+	PERMISSIONS_PATH,
 	PROFILE_PATH,
 } from './auth';
 import { describeNetworkError, errorCode, errorDetail, readBody, tooLargeMessage } from './response';
@@ -81,6 +83,9 @@ export class PatchMonClient {
 	private readonly errorSecrets: string[] = [];
 
 	private renewed = false;
+
+	/** The service user's permissions, read once per execution by requirePermission(). */
+	private permissions?: IDataObject;
 
 	/**
 	 * A failed sign-in is not stored by n8n, which would sign in again before every request.
@@ -156,6 +161,29 @@ export class PatchMonClient {
 			throw this.error(
 				`${what} needs the service user of the PatchMon credential`,
 				'PatchMon offers host groups, repositories, patch policies and patching only through its web UI API. Set Username and Password of a dedicated service user in the credential.',
+			);
+		}
+	}
+
+	/**
+	 * Fails before the operation sends anything that changes PatchMon when the service user's
+	 * role lacks `permission`. The permissions are read once per execution (GET
+	 * /permissions/user-permissions), so a role changed in PatchMon is seen at the next run.
+	 */
+	async requirePermission(permission: string, what: string): Promise<void> {
+		this.requireServiceUser(what);
+		if (!this.permissions) {
+			const res = await this.request<IDataObject>('session', 'GET', PERMISSIONS_PATH, { acceptStatus: [403] });
+			if (res.statusCode === 403 && errorCode(res.data)) {
+				throw this.error(`PatchMon API error 403: ${errorDetail(res.data)}`, this.hint('session', 403, res.data, {}));
+			}
+			// 403 without a code: "No permissions found" for the role
+			this.permissions = res.statusCode === 403 || !res.data || typeof res.data !== 'object' ? {} : res.data;
+		}
+		if (!hasPermission(this.permissions, permission)) {
+			throw this.error(
+				`${what} needs the permission ${permission}, which the service user's role does not have: nothing was changed in PatchMon`,
+				`Give ${permission} to the role of the service user in PatchMon, or use a service user whose role has it.`,
 			);
 		}
 	}

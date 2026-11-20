@@ -158,7 +158,7 @@ export async function runCredentialTest(
 			if (rule) return { status: 'Error', message: (rule.properties as { message: string }).message };
 			return { status: 'Error', message: e.cause.response.statusText || `Received HTTP status code: ${status}` };
 		}
-		if (e.cause?.message) return { status: 'Error', message: e.cause.message };
+		// Like CredentialsTester 2.45: the error code of the cause, else the message of the error
 		if (e.cause?.code) return { status: 'Error', message: e.cause.code };
 		return { status: 'Error', message: String(e.message) };
 	}
