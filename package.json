@@ -1,0 +1,72 @@
+{
+	"name": "n8n-nodes-patchmon",
+	"version": "0.1.0",
+	"description": "n8n community nodes for PatchMon: read hosts, packages, host groups, repositories and patch policies, trigger and follow patch runs, patch pending security updates, with a polling trigger.",
+	"license": "MIT",
+	"homepage": "https://github.com/FDalCol/n8n-nodes-patchmon#readme",
+	"bugs": {
+		"url": "https://github.com/FDalCol/n8n-nodes-patchmon/issues"
+	},
+	"funding": {
+		"type": "buymeacoffee",
+		"url": "https://buymeacoffee.com/FDalCol"
+	},
+	"keywords": [
+		"n8n-community-node-package",
+		"n8n",
+		"patchmon",
+		"patch-management",
+		"linux",
+		"security-updates",
+		"packages",
+		"patching"
+	],
+	"author": {
+		"name": "FDalCol",
+		"email": "353270041+FDalCol@users.noreply.github.com"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/FDalCol/n8n-nodes-patchmon.git"
+	},
+	"main": "index.js",
+	"scripts": {
+		"build": "n8n-node build",
+		"build:watch": "tsc --watch",
+		"dev": "n8n-node dev",
+		"lint": "n8n-node lint",
+		"lint:fix": "n8n-node lint --fix",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"prepublishOnly": "npm run build && npm run lint && npm test"
+	},
+	"files": [
+		"dist",
+		"!dist/**/*.tsbuildinfo",
+		"index.js"
+	],
+	"n8n": {
+		"n8nNodesApiVersion": 1,
+		"strict": true,
+		"credentials": [
+			"dist/credentials/PatchMonApi.credentials.js"
+		],
+		"nodes": [
+			"dist/nodes/PatchMon/PatchMon.node.js",
+			"dist/nodes/PatchMonTrigger/PatchMonTrigger.node.js"
+		]
+	},
+	"devDependencies": {
+		"@n8n/backend-network": "1.19.0",
+		"@n8n/node-cli": "0.55.6",
+		"@types/node": "26.6.6",
+		"eslint": "9.39.4",
+		"n8n-workflow": "2.45.0",
+		"prettier": "3.8.3",
+		"typescript": "5.9.3",
+		"vitest": "5.1.0"
+	},
+	"peerDependencies": {
+		"n8n-workflow": "*"
+	}
+}
