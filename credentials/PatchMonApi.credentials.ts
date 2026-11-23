@@ -11,13 +11,7 @@ import type {
 
 import { authorizationFor, CREDENTIAL_TEST_HEADER, credentialTestProblem, preAuthenticate } from '../nodes/PatchMon/shared/auth';
 
-/**
- * Integration API token (Basic Auth, only for /api/v1/api/*) and an optional service user for the
- * patching operations, which PatchMon only offers through the web UI API. For the service user,
- * preAuthentication signs in with POST /api/v1/auth/login and n8n stores the access token in the
- * hidden, expirable `sessionToken` field. n8n 2.45 runs it again only when that field is empty,
- * after a 401 and on every credential test.
- */
+/** n8n 2.45 runs preAuthentication when `sessionToken` is empty, after a 401 and on every credential test. */
 export class PatchMonApi implements ICredentialType {
 	name = 'patchMonApi';
 
@@ -102,7 +96,7 @@ export class PatchMonApi implements ICredentialType {
 			displayName: 'Session Permissions',
 			name: 'sessionPermissions',
 			type: 'hidden',
-			// The service user's permissions read at the last sign-in (for the credential test)
+			// Read at sign-in, checked by the credential test
 			default: '',
 		},
 	];
@@ -129,12 +123,7 @@ export class PatchMonApi implements ICredentialType {
 		return { ...requestOptions, headers };
 	};
 
-	/**
-	 * Checks the Integration API token with GET /api/v1/api/hosts. When a service user is set,
-	 * n8n first runs preAuthentication, which signs in and reads the user's permissions; the
-	 * test fails if the role lacks can_view_hosts (a missing can_manage_patching is reported by
-	 * the operations that need it).
-	 */
+	/** preAuthentication runs first: the test fails if the service user lacks can_view_hosts. */
 	test: ICredentialTestRequest = {
 		request: {
 			// http(s) only, without credentials, query or fragment. Anything else resolves to an

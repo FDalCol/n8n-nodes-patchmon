@@ -34,7 +34,7 @@ describe('service user session', () => {
 		expect(hosts).toHaveLength(4);
 		expect(server.logins).toHaveLength(0);
 		expect(stored.sessionToken).toBeUndefined();
-		// ...and a wrong service user password does not break them
+		// A wrong service user password does not break them either
 		await runNodeJson({ credentials: credentials(server, { password: 'wrong-password' }), params: getHosts });
 		expect(server.logins).toHaveLength(0);
 	});

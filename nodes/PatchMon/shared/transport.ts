@@ -44,7 +44,6 @@ export interface PatchMonRequestOptions {
 	body?: unknown;
 	timeoutMs?: number;
 	maxBytes?: number;
-	/** HTTP status codes returned to the caller instead of raising an error. */
 	acceptStatus?: number[];
 	/** Permission named in the hint of a 403 ("Insufficient permissions"). */
 	permission?: string;
@@ -68,15 +67,9 @@ interface RawResponse {
 	text: string;
 }
 
-/**
- * HTTP client for one execution. Every request goes through
- * `helpers.httpRequestWithAuthentication` with redirects disabled, a timeout and a response size
- * limit; the credential adds Basic Auth to Integration API routes and Bearer to session routes.
- */
 export class PatchMonClient {
 	readonly baseUrl: string;
 
-	/** Removed from outputs and errors. */
 	private readonly secrets: string[] = [];
 
 	/** Removed from error messages only (a short password would corrupt ordinary output data). */
@@ -84,7 +77,6 @@ export class PatchMonClient {
 
 	private renewed = false;
 
-	/** The service user's permissions, read once per execution by requirePermission(). */
 	private permissions?: IDataObject;
 
 	/**
@@ -126,7 +118,7 @@ export class PatchMonClient {
 		return hasServiceUser(this.raw);
 	}
 
-	/** The sign-in failure of this execution, if any (used by the trigger to pause sign-ins). */
+	/** Used by the trigger to pause sign-ins. */
 	get lastSignInFailure(): SignInFailure | undefined {
 		return this.signInFailure;
 	}
@@ -155,7 +147,6 @@ export class PatchMonClient {
 		return this.error(signIn.message, signIn.description);
 	}
 
-	/** Fails before any request when the operation needs the service user and none is set. */
 	requireServiceUser(what = 'This operation'): void {
 		if (!this.hasServiceUser) {
 			throw this.error(
@@ -165,11 +156,7 @@ export class PatchMonClient {
 		}
 	}
 
-	/**
-	 * Fails before the operation sends anything that changes PatchMon when the service user's
-	 * role lacks `permission`. The permissions are read once per execution (GET
-	 * /permissions/user-permissions), so a role changed in PatchMon is seen at the next run.
-	 */
+	/** Read once per execution, so a role changed in PatchMon is seen at the next run. */
 	async requirePermission(permission: string, what: string): Promise<void> {
 		this.requireServiceUser(what);
 		if (!this.permissions) {
@@ -400,7 +387,6 @@ export class PatchMonClient {
 		return { statusCode: res.statusCode, data: (parsed ?? null) as T };
 	}
 
-	/** Runs a validation and turns its error into a node error. */
 	guard<T>(fn: () => T): T {
 		try {
 			return fn();

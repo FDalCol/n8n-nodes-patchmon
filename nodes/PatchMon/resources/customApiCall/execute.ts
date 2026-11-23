@@ -6,7 +6,6 @@ import type { PatchMonMethod } from '../../shared/transport';
 
 const PARAM_NAME = /^[A-Za-z0-9_.\-[\]]{1,128}$/;
 const METHODS: PatchMonMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
-/** Credentials never travel in a URL. */
 const FORBIDDEN_PARAMS = new Set(['token', 'password', 'secret', 'api_key', 'apikey', 'key', 'ticket', 'access_token', 'refresh_token']);
 
 export const customApiCallHandlers: ResourceHandlers = {

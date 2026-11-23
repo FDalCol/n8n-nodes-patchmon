@@ -72,7 +72,6 @@ export const patchingDescription: INodeProperties[] = [
 	idField(R, ['triggerPatch', 'previewRun'], 'hostId', 'Host ID', 'UUID of the host in PatchMon'),
 	idField(R, ['getRun', 'approveRun', 'cancelRun'], 'runId', 'Run ID', 'UUID of the patch run'),
 
-	// Trigger Patch
 	{
 		displayName: 'Patch Type',
 		name: 'patchType',
@@ -121,7 +120,6 @@ export const patchingDescription: INodeProperties[] = [
 		displayOptions: { show: { resource: [R], operation: ['triggerPatch'] } },
 	},
 
-	// Patch Security Updates
 	{
 		displayName: 'Hosts',
 		name: 'target',
@@ -205,7 +203,6 @@ export const patchingDescription: INodeProperties[] = [
 		],
 	},
 
-	// Shared by Trigger Patch, Patch Security Updates and Approve Run
 	{
 		displayName: 'Run Immediately',
 		name: 'runImmediately',
@@ -216,7 +213,6 @@ export const patchingDescription: INodeProperties[] = [
 		displayOptions: { show: { resource: [R], operation: ['triggerPatch', 'patchSecurityUpdates', 'approveRun'] } },
 	},
 
-	// Wait For Completion (Trigger Patch, Approve Run)
 	{
 		displayName: 'Wait for Completion',
 		name: 'waitForCompletion',
@@ -245,7 +241,6 @@ export const patchingDescription: INodeProperties[] = [
 		displayOptions: { show: { resource: [R], operation: ['triggerPatch', 'approveRun'], waitForCompletion: [true] } },
 	},
 
-	// Get Run
 	{
 		displayName: 'Include Shell Output',
 		name: 'includeOutput',
@@ -255,7 +250,6 @@ export const patchingDescription: INodeProperties[] = [
 		displayOptions: { show: { resource: [R], operation: ['getRun', 'getRuns', 'getActiveRuns', 'triggerPatch', 'approveRun'] } },
 	},
 
-	// Get Runs / Get Active Runs
 	{
 		displayName: 'Filters',
 		name: 'runFilters',

@@ -197,14 +197,12 @@ export class FakePatchMon {
 
 	runs: Run[] = [];
 
-	/** Access tokens the server accepts. */
 	readonly sessions = new Set<string>();
 
 	readonly issuedTokens: string[] = [];
 
 	permissions = new Set(PERMISSIONS);
 
-	/** Scopes of the API token. */
 	scopes: string[] = ['get'];
 
 	userTfa = false;
@@ -215,7 +213,6 @@ export class FakePatchMon {
 
 	localAuthDisabled = false;
 
-	/** Answer every sign-in with 429 (lockout). */
 	lockedOut = false;
 
 	/** Runs advance one status on every GET of the run. */
@@ -386,7 +383,6 @@ export class FakePatchMon {
 	}
 
 	private installDefaults(): void {
-		// Integration API
 		this.on('GET', '/api/v1/api/hosts', (req) => {
 			const stats = (req.query.get('include') ?? '').split(',').includes('stats');
 			const filter = (req.query.get('hostgroup') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -433,7 +429,6 @@ export class FakePatchMon {
 			return { json: { host: { id: h.id, hostname: h.hostname, friendly_name: h.friendly_name }, packages, total: packages.length } };
 		});
 
-		// Sign-in and session
 		this.on('POST', '/api/v1/auth/login', (req) => {
 			if (this.localAuthDisabled) return { status: 403, json: { error: 'Local authentication is disabled. Please use SSO.' } };
 			if (this.lockedOut) {
@@ -500,7 +495,6 @@ export class FakePatchMon {
 		});
 		this.on('GET', '/api/v1/repositories/host/{id}', (_r, p) => ({ json: hostOr404(p.id) ? repos.slice(0, 2) : [] }));
 
-		// Patching
 		this.on('GET', '/api/v1/patching/policies', () => ({
 			json: [{ id: POLICY_ID, name: 'Weekend window', patch_delay_type: 'fixed_time', fixed_time_utc: '02:00', _count: { assignments: 1, exclusions: 0 } }],
 		}));

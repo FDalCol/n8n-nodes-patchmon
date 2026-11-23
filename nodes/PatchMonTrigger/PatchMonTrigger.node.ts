@@ -28,9 +28,7 @@ type EventName = 'newSecurityUpdates' | 'patchRunFinished' | 'patchRunFailed' | 
 interface TriggerState {
 	event?: EventName;
 	initialized?: boolean;
-	/** Hashed dedupe keys (security updates, run IDs) or hashed IDs of offline hosts. */
 	seen?: string[];
-	/** Sign-ins paused after a 401 or 429 (service user). */
 	signInPause?: SignInPause;
 }
 
@@ -39,14 +37,11 @@ interface SignInPause {
 	status: 401 | 429;
 	account: string;
 	session: string;
-	/** 429: when PatchMon accepts sign-ins again (ISO date). */
 	until?: string;
-	/** The error was already reported for this status and identity. */
 	reported: boolean;
 }
 
 const MAX_HOSTS = 1000;
-/** Runs read per status at each poll. */
 const RUNS_PER_POLL = 100;
 const DEFAULT_SIGN_IN_WAIT_SECONDS = 60;
 const MAX_SIGN_IN_WAIT_SECONDS = 24 * 60 * 60;
@@ -268,7 +263,6 @@ function readFilters(ctx: IPollFunctions, client: PatchMonClient): Filters {
 	}));
 }
 
-/** Hosts selected by the filters, from the Integration API (with stats). */
 async function selectedHosts(client: PatchMonClient, filters: Filters): Promise<IDataObject[]> {
 	const hosts = await listHosts(client, filters.groups, true);
 	return filters.hostIds.size ? hosts.filter((h) => filters.hostIds.has(String(h.id).toLowerCase())) : hosts;
@@ -286,7 +280,7 @@ function hostFields(host: IDataObject): IDataObject {
 	};
 }
 
-/** New Security Updates: dedupe by host + package + available version. */
+/** Deduplicated by host, package and available version. */
 async function pollSecurityUpdates(
 	this: IPollFunctions,
 	client: PatchMonClient,
@@ -345,7 +339,6 @@ async function pollSecurityUpdates(
 	return { items: manual || firstRun ? [] : items, sample };
 }
 
-/** Patch Run Finished / Failed: runs that reached the status since the previous poll (dedupe by run ID). */
 async function pollRuns(
 	this: IPollFunctions,
 	client: PatchMonClient,
@@ -412,7 +405,7 @@ function runItem(event: EventName, run: IDataObject): IDataObject {
 	};
 }
 
-/** Host Offline: fires once when a host crosses the threshold, again only after it reported. */
+/** Fires once per host, again only after it reported. */
 async function pollOffline(
 	this: IPollFunctions,
 	client: PatchMonClient,

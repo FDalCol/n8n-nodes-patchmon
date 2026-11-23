@@ -58,7 +58,7 @@ interface WaitSettings {
 	intervalMs: number;
 }
 
-/** Validated before anything is started, also when the values come from expressions. */
+/** Validated before anything starts, also values from expressions. */
 function waitSettings(ctx: OperationContext): WaitSettings | undefined {
 	if (!ctx.bool('waitForCompletion')) return undefined;
 	return ctx.guard(() => ({
@@ -69,10 +69,7 @@ function waitSettings(ctx: OperationContext): WaitSettings | undefined {
 	}));
 }
 
-/**
- * Wait For Completion: only when the run is due within Max Wait. A run that its patch policy
- * schedules later (delayed or fixed-time window) is returned at once.
- */
+/** A run that its patch policy schedules after Max Wait is returned at once. */
 async function maybeWait(ctx: OperationContext, result: IDataObject, wait: WaitSettings | undefined): Promise<IDataObject> {
 	if (!wait || typeof result.patch_run_id !== 'string') return result;
 	const startsAt = Date.parse(String(result.run_at ?? ''));
@@ -180,8 +177,8 @@ async function getRuns(ctx: OperationContext): Promise<OperationResult> {
 		const runs = answer.runs as IDataObject[];
 		rows.push(...runs);
 		const total = Number((answer.pagination as IDataObject | undefined)?.total ?? 0);
-		// Stop on an empty page or when PatchMon says there is nothing more (a page may be shorter than asked)
-			if (runs.length === 0 || rows.length >= total) break;
+		// A page can be shorter than requested: rely on total
+		if (runs.length === 0 || rows.length >= total) break;
 	}
 	return list(applyLimit(rows, limit).map((r) => withoutOutput(r, include)));
 }

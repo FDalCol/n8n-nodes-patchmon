@@ -2,7 +2,7 @@ import type { IDataObject } from 'n8n-workflow';
 
 import { SecurityError } from './security';
 
-/** Decodes the (already buffered) response body; the size is checked again as a safety net. */
+/** The size is checked again as a safety net. */
 export function readBody(body: unknown, maxBytes: number): string {
 	if (body === undefined || body === null) return '';
 	if (typeof body === 'string') {
@@ -25,7 +25,7 @@ export function tooLargeMessage(maxBytes: number): string {
 	return `Response too large (more than ${Math.round(maxBytes / 1024 / 1024)} MiB), aborted`;
 }
 
-/** A network error described without the request it came from (headers, body). */
+/** Built without the request it came from, which holds headers and body. */
 export function describeNetworkError(error: unknown, includeRawMessage = true): { message: string; description?: string } {
 	const e = error as {
 		code?: string;
@@ -81,7 +81,6 @@ export function errorDetail(body: unknown): string {
 	return parts.join(': ').slice(0, 2000);
 }
 
-/** The PatchMon code of a 403 (TFA_ENROLMENT_REQUIRED, PASSWORD_CHANGE_REQUIRED, module_not_available). */
 export function errorCode(body: unknown): string {
 	if (!body || typeof body !== 'object' || Array.isArray(body)) return '';
 	const code = (body as IDataObject).code;

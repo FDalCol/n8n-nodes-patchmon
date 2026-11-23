@@ -1,11 +1,6 @@
 /**
- * Patch Security Updates: one patch_package run per host, limited to the packages PatchMon flags
- * as security updates.
- *
- * Phase 1 reads everything (Integration API hosts and packages, the service user's view of
- * active runs and package managers). A sign-in failure or an unexpected Integration API answer
- * stops the node here, before any run is started. Phase 2 starts the runs; an error on one host
- * is reported for that host and never stops the others.
+ * All reads happen first: a sign-in failure or an unexpected Integration API answer stops the
+ * node before any run is started. Then an error on one host never stops the others.
  */
 import { NodeOperationError, type IDataObject } from 'n8n-workflow';
 
@@ -43,7 +38,7 @@ interface HostResult extends IDataObject {
 interface Plan {
 	host: IDataObject;
 	packages: string[];
-	/** Security updates PatchMon would refuse (invalid names) or that exceed 100 per run. */
+	/** Invalid names, or beyond the 100 names PatchMon accepts per run. */
 	notIncluded: string[];
 }
 
@@ -57,7 +52,6 @@ function skipped(host: IDataObject, reason: SkipReason, message: string, extra: 
 	return entry(host, 'skipped', { reason, message, ...extra });
 }
 
-/** A failure that must stop the whole operation: sign-in, permissions, cancellation. */
 function isFatal(ctx: OperationContext, error: unknown): boolean {
 	const message = String((error as Error)?.message ?? '');
 	return (
@@ -72,7 +66,6 @@ function errorMessage(ctx: OperationContext, error: unknown): string {
 	return ctx.client.redact(String((error as Error)?.message ?? 'Unknown error')).slice(0, 1000);
 }
 
-/** Valid, unique security update names, sorted; at most 100 per run (PatchMon's limit). */
 function packagePlan(packages: IDataObject[]): { packages: string[]; notIncluded: string[] } {
 	const names = [...new Set(packages.map((p) => String(p.name ?? '').trim()).filter((n) => n !== ''))].sort();
 	const valid = names.filter((n) => n.length <= 256 && PACKAGE_NAME_RE.test(n));
@@ -98,10 +91,9 @@ export async function patchSecurityUpdates(ctx: OperationContext): Promise<IData
 	const excludeHosts = new Set(ctx.guard(() => toList(options.excludeHosts, MAX_HOSTS_PER_RUN)).map((s) => s.toLowerCase()));
 	const excludeGroups = new Set(ctx.guard(() => toList(options.excludeGroups, 100).map(validateGroupRef)).map((s) => s.toLowerCase()));
 
-	// Checked first: without it nothing would be started, so nothing is read either
+	// Without it nothing would be started, so nothing is read either
 	if (!dryRun) await client.requirePermission('can_manage_patching', 'Patch Security Updates');
 
-	// Phase 1: reads only. Any failure here (except a host that no longer exists) stops the node.
 	const results: HostResult[] = [];
 	const hosts = await listHosts(client, groups, true);
 	let targets: IDataObject[];
@@ -174,7 +166,6 @@ export async function patchSecurityUpdates(ctx: OperationContext): Promise<IData
 		}
 	}
 
-	// Phase 2: start the runs. An error on one host never stops the others.
 	for (const plan of plans) {
 		const base = { packages: plan.packages, package_count: plan.packages.length, not_included: plan.notIncluded };
 		if (dryRun) {

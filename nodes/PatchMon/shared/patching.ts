@@ -1,4 +1,3 @@
-/** Patching through the web UI API (service user session). */
 import type { IDataObject } from 'n8n-workflow';
 
 import { MAX_POLL_ITERATIONS, validateUuid } from './security';
@@ -13,7 +12,7 @@ export const PATCHING_PATH = '/api/v1/patching';
  */
 export const BLOCKING_STATUSES = new Set(['scheduled', 'queued', 'running', 'pending_validation', 'pending_approval']);
 
-/** Statuses after which a run never changes again (validated: a finished dry run). */
+/** validated: a finished dry run. */
 export const TERMINAL_STATUSES = new Set([
 	'completed',
 	'failed',
@@ -34,7 +33,6 @@ export function runPath(runId: string, sub = ''): string {
 	return `${PATCHING_PATH}/runs/${validateUuid(runId, 'Run ID')}${sub ? `/${sub}` : ''}`;
 }
 
-/** GET /patching/runs/active: every run not finished yet (scheduled, queued, waiting for approval...). */
 export async function getActiveRuns(client: PatchMonClient): Promise<IDataObject[]> {
 	const answer = await client.session<IDataObject>('GET', `${PATCHING_PATH}/runs/active`, { permission: 'can_view_hosts' });
 	if (!answer || typeof answer !== 'object' || !Array.isArray(answer.runs)) {
@@ -43,7 +41,6 @@ export async function getActiveRuns(client: PatchMonClient): Promise<IDataObject
 	return (answer.runs as unknown[]).filter((r): r is IDataObject => !!r && typeof r === 'object');
 }
 
-/** Blocking runs grouped by host ID. */
 export function blockingRunsByHost(runs: IDataObject[]): Map<string, IDataObject[]> {
 	const out = new Map<string, IDataObject[]>();
 	for (const run of runs) {
@@ -65,7 +62,7 @@ export function runSummary(run: IDataObject): IDataObject {
 	};
 }
 
-/** The package manager PatchMon recorded for a host (session route GET /hosts/{id}), or undefined if the host is gone. */
+/** undefined when the host no longer exists (404). */
 export async function getHostDetail(client: PatchMonClient, hostId: string): Promise<IDataObject | undefined> {
 	const path = `/api/v1/hosts/${client.guard(() => validateUuid(hostId, 'Host ID'))}`;
 	const res = await client.request<IDataObject>('session', 'GET', path, { acceptStatus: [404], permission: 'can_view_hosts' });
@@ -76,7 +73,7 @@ export async function getHostDetail(client: PatchMonClient, hostId: string): Pro
 	return res.data;
 }
 
-/** PatchMon refuses selected-package runs on pacman hosts (a partial upgrade on Arch Linux). */
+/** A selected-package run on pacman would be a partial upgrade, which PatchMon refuses. */
 export function refusesSelectedPatch(host: IDataObject | undefined): boolean {
 	return typeof host?.package_manager === 'string' && host.package_manager.toLowerCase() === 'pacman';
 }
@@ -97,7 +94,6 @@ export type TriggerOutcome =
 	| { kind: 'notFound'; message: string }
 	| { kind: 'rejected'; message: string };
 
-/** POST /patching/trigger, with the refusals a caller may want to report per host. */
 export async function triggerRun(client: PatchMonClient, body: TriggerBody): Promise<TriggerOutcome> {
 	const res = await client.request<IDataObject>('session', 'POST', `${PATCHING_PATH}/trigger`, {
 		body,
@@ -124,7 +120,6 @@ export interface WaitResult {
 	finished: boolean;
 }
 
-/** Polls GET /patching/runs/{id} until the run ends or the wait limit is reached. */
 export async function waitForRun(client: PatchMonClient, runId: string, maxWaitMs: number, intervalMs: number): Promise<WaitResult> {
 	const deadline = Date.now() + maxWaitMs;
 	let run = await getRun(client, runId);

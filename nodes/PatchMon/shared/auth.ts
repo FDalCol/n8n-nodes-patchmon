@@ -1,12 +1,6 @@
 /**
- * Credential authentication.
- *
- * - Integration API (/api/v1/api/*): Basic Auth with Token Key and Token Secret. Nothing else is
- *   ever sent to these routes, and the token is never sent anywhere else.
- * - Session routes (the web UI API): optional service user. n8n calls preAuthentication when the
- *   hidden, expirable `sessionToken` is empty, after a 401 and on every credential test. It signs
- *   in once with POST /api/v1/auth/login and n8n stores the access token. The token is sent as
- *   Bearer only while `sessionTokenFingerprint` ties it to this Base URL, username and password.
+ * Basic Auth with the API token goes only to /api/v1/api/*. The service user's access token goes
+ * as Bearer only to the other /api/v1 routes of the Base URL it was issued for.
  */
 import type { ICredentialDataDecryptedObject, IDataObject, IHttpRequestHelper, IHttpRequestOptions } from 'n8n-workflow';
 
@@ -27,17 +21,12 @@ export const PERMISSIONS_PATH = '/api/v1/permissions/user-permissions';
 /** Needs a valid session and no permission: used to renew an expired token. */
 export const PROFILE_PATH = '/api/v1/auth/profile';
 
-/** Permissions of the service user that this node uses. */
 export const NODE_PERMISSIONS = ['can_view_hosts', 'can_manage_patching'];
 
-/** Header of the credential test request only: removed by authenticate() before sending. */
+/** Only on the credential test request; authenticate() removes it before sending. */
 export const CREDENTIAL_TEST_HEADER = 'x-n8n-patchmon-credential-test';
 
-/**
- * The credential test fails when the service user cannot read hosts: every service user
- * operation needs can_view_hosts. preAuthentication runs before the test request and stores
- * the permissions it read in `sessionPermissions`.
- */
+/** Every service user operation needs can_view_hosts. */
 export function credentialTestProblem(raw: ICredentialDataDecryptedObject): string | undefined {
 	if (!hasServiceUser(raw)) return undefined;
 	const granted = String(raw.sessionPermissions ?? '').split(',');
@@ -50,7 +39,6 @@ const SIGN_IN_MAX_BYTES = 1024 * 1024;
 const MAX_USERNAME_LENGTH = 255;
 const MAX_PASSWORD_LENGTH = 1024;
 
-/** PatchMon access tokens are HS256 JWTs. */
 export const ACCESS_TOKEN_RE = /^[A-Za-z0-9_-]{10,2048}\.[A-Za-z0-9_-]{10,8192}\.[A-Za-z0-9_-]{10,1024}$/;
 
 /** Sign-in failure: message and description never contain the password or a token. */
@@ -62,7 +50,6 @@ export class PatchMonSignInError extends Error {
 	/** HTTP status of the sign-in answer. Not named statusCode: NodeApiError would replace the message. */
 	signInStatus?: number;
 
-	/** 429 / 503: seconds PatchMon asks to wait. */
 	retryAfterSeconds?: number;
 
 	constructor(message: string, description?: string) {
@@ -72,7 +59,6 @@ export class PatchMonSignInError extends Error {
 	}
 }
 
-/** Retry-After as seconds: a number of seconds or an HTTP date. */
 export function parseRetryAfter(value: string, now = Date.now()): number | undefined {
 	const text = value.trim();
 	if (/^\d{1,9}$/.test(text)) return Number(text);
@@ -80,7 +66,7 @@ export function parseRetryAfter(value: string, now = Date.now()): number | undef
 	return Number.isNaN(date) ? undefined : Math.max(0, Math.ceil((date - now) / 1000));
 }
 
-/** The sign-in error carried by `error` or by its cause (n8n wraps it in a NodeApiError). */
+/** n8n wraps the sign-in error in a NodeApiError. */
 export function findSignInError(error: unknown): PatchMonSignInError | undefined {
 	let current: unknown = error;
 	for (let depth = 0; depth < 4 && current && typeof current === 'object'; depth++) {
@@ -108,15 +94,11 @@ export function hasServiceUser(raw: ICredentialDataDecryptedObject): boolean {
 	return serviceUsername(raw) !== '';
 }
 
-/** Secrets of the credential, for redaction only. */
 export function credentialSecrets(raw: ICredentialDataDecryptedObject): { secrets: string[]; password: string } {
 	return { secrets: [str(raw, 'tokenSecret'), str(raw, 'sessionToken')].filter((s) => s !== ''), password: servicePassword(raw) };
 }
 
-/**
- * Only what the Integration API needs. Passed as the credential of Integration API requests: it
- * has no service user and no `sessionToken` field, so n8n never signs in for them.
- */
+/** Has no service user and no `sessionToken` field, so n8n never signs in for Integration API requests. */
 export function integrationCredentials(raw: ICredentialDataDecryptedObject): ICredentialDataDecryptedObject {
 	return { baseUrl: raw.baseUrl, tokenKey: raw.tokenKey, tokenSecret: raw.tokenSecret };
 }
@@ -125,7 +107,6 @@ export function hasPermission(permissions: IDataObject, permission: string): boo
 	return permissions[permission] === true;
 }
 
-/** `Basic base64(key:secret)`, or an error that names the field without its value. */
 export function basicAuthorization(raw: ICredentialDataDecryptedObject): string {
 	const key = str(raw, 'tokenKey');
 	const secret = str(raw, 'tokenSecret');
@@ -134,7 +115,7 @@ export function basicAuthorization(raw: ICredentialDataDecryptedObject): string 
 	return `Basic ${Buffer.from(`${key}:${secret}`, 'utf8').toString('base64')}`;
 }
 
-/** Stable per Base URL and user, so every sign-in reuses one PatchMon session row. */
+/** Stable per Base URL and user, so every sign-in reuses one PatchMon session. */
 export function deviceId(baseUrl: string, user: string): string {
 	return `n8n-${stateKey(`${baseUrl}\n${user}`)}${stateKey(`${user}\n${baseUrl}`)}`;
 }
@@ -148,7 +129,7 @@ export function sessionTokenFingerprint(baseUrl: string, user: string, pass: str
 	return `v1.${stateKey(input)}.${stateKey(`${input}\n${token}`)}`;
 }
 
-/** The stored access token, only if it was issued for this Base URL, username and password. */
+/** Only a token issued for this Base URL, username and password. */
 export function credentialToken(raw: ICredentialDataDecryptedObject): string {
 	const token = str(raw, 'sessionToken');
 	if (!ACCESS_TOKEN_RE.test(token) || !hasServiceUser(raw)) return '';
@@ -163,10 +144,7 @@ export function credentialToken(raw: ICredentialDataDecryptedObject): string {
 		: '';
 }
 
-/**
- * Who the credential signs in as, without the password: `account` hashes Base URL and username,
- * `session` the stored token fingerprint (it changes when n8n stores a new token).
- */
+/** Hashes only, never the password. `session` changes when n8n stores a new token. */
 export function signInIdentity(raw: ICredentialDataDecryptedObject): { account: string; session: string } | undefined {
 	if (!hasServiceUser(raw)) return undefined;
 	let baseUrl: string;
@@ -181,10 +159,7 @@ export function signInIdentity(raw: ICredentialDataDecryptedObject): { account: 
 	};
 }
 
-/**
- * The Authorization header for a request, chosen from its URL: Basic for the Integration API,
- * Bearer for the other /api/v1 routes of the same Base URL, nothing for any other URL.
- */
+/** Chosen from the URL, so each secret only reaches the routes of its type on the Base URL. */
 export function authorizationFor(raw: ICredentialDataDecryptedObject, options: IHttpRequestOptions): string | undefined {
 	let baseUrl: string;
 	try {
@@ -323,11 +298,7 @@ function signInFailure(res: SignInResponse, secrets: string[]): PatchMonSignInEr
 	return error;
 }
 
-/**
- * The permissions of the service user's role that this node uses. Missing permissions never make
- * the sign-in fail: operations check them before they act, and the credential test reports them.
- * A sign-in that PatchMon blocks (two-factor enrolment, temporary password) still fails here.
- */
+/** Missing permissions never make the sign-in fail; a sign-in PatchMon blocks (MFA enrolment, temporary password) does. */
 function readPermissions(res: SignInResponse, secrets: string[]): string[] {
 	if (res.statusCode === 403) {
 		const code = errorCode(res.data);
@@ -352,10 +323,7 @@ function readPermissions(res: SignInResponse, secrets: string[]): string[] {
 	return NODE_PERMISSIONS.filter((p) => perms[p] === true);
 }
 
-/**
- * Signs in the service user when there is one and the stored token is missing or refused.
- * Keeps the stored token while PatchMon accepts it, so a credential test does not sign in again.
- */
+/** Keeps the stored token while PatchMon accepts it, so a credential test does not sign in again. */
 export async function preAuthenticate(
 	helpers: IHttpRequestHelper['helpers'],
 	raw: ICredentialDataDecryptedObject,

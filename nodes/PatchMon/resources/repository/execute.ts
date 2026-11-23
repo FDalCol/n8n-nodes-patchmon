@@ -28,7 +28,7 @@ export const repositoryHandlers: ResourceHandlers = {
 			const items = answer.items as unknown[];
 			rows.push(...items);
 			const total = Number(answer.total ?? 0);
-			// Stop on an empty page or when PatchMon says there is nothing more (a page may be shorter than asked)
+			// A page can be shorter than requested: rely on total
 			if (items.length === 0 || rows.length >= total) break;
 		}
 		return list(applyLimit(rows, limit));

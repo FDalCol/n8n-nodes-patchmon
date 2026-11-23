@@ -1,4 +1,3 @@
-/** Integration API reads (Basic Auth, scope host: get). */
 import type { IDataObject } from 'n8n-workflow';
 
 import { validateGroupRef, validateUuid } from './security';
@@ -10,7 +9,6 @@ export function hostPath(hostId: string, sub = ''): string {
 	return `${HOSTS_PATH}/${validateUuid(hostId, 'Host ID')}${sub ? `/${sub}` : ''}`;
 }
 
-/** The display name of a host: friendly name, else hostname, else ID. */
 export function hostName(host: IDataObject): string {
 	for (const key of ['friendly_name', 'hostname', 'id']) {
 		const v = host[key];
@@ -26,10 +24,7 @@ function unexpected(client: PatchMonClient, what: string): Error {
 	);
 }
 
-/**
- * GET /api/v1/api/hosts. `groups` are host group IDs or names (PatchMon resolves both); with
- * `includeStats` every host has OS, status, update and security counts and last_update.
- */
+/** PatchMon resolves group IDs and names itself. */
 export async function listHosts(client: PatchMonClient, groups: string[] = [], includeStats = true): Promise<IDataObject[]> {
 	const refs = client.guardList(groups, validateGroupRef);
 	const answer = await client.integration<IDataObject>(HOSTS_PATH, {
@@ -49,7 +44,7 @@ export interface HostPackages {
 	packages: IDataObject[];
 }
 
-/** GET /api/v1/api/hosts/{id}/packages, or undefined when the host does not exist (404). */
+/** undefined when the host no longer exists (404). */
 export async function getHostPackages(client: PatchMonClient, hostId: string, updatesOnly: boolean): Promise<HostPackages | undefined> {
 	const path = client.guard(() => hostPath(hostId, 'packages'));
 	const res = await client.request<IDataObject>('integration', 'GET', path, {
@@ -63,12 +58,10 @@ export async function getHostPackages(client: PatchMonClient, hostId: string, up
 	return { host: (answer.host as IDataObject) ?? { id: hostId }, packages };
 }
 
-/** Packages with a pending update flagged as a security update by PatchMon (is_security_update). */
 export function securityUpdates(packages: IDataObject[]): IDataObject[] {
 	return packages.filter((p) => p.is_security_update === true && p.needs_update === true);
 }
 
-/** Case-insensitive match of a host on its ID, friendly name or hostname. */
 export function hostMatches(host: IDataObject, refs: Set<string>): boolean {
 	for (const key of ['id', 'friendly_name', 'hostname']) {
 		const v = host[key];
@@ -77,7 +70,6 @@ export function hostMatches(host: IDataObject, refs: Set<string>): boolean {
 	return false;
 }
 
-/** Case-insensitive match of a host on the ID or name of one of its groups. */
 export function hostInGroups(host: IDataObject, refs: Set<string>): boolean {
 	const groups = Array.isArray(host.host_groups) ? (host.host_groups as IDataObject[]) : [];
 	return groups.some((g) =>

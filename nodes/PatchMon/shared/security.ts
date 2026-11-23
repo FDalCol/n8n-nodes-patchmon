@@ -1,8 +1,7 @@
 export const REQUEST_TIMEOUT_MS = 60_000;
 export const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
-/** Hard stop for any loop that pages or polls. */
 export const MAX_POLL_ITERATIONS = 10_000;
-/** Wait For Completion: maximum wait (PatchMon times runs out on its own). */
+/** PatchMon times runs out on its own. */
 export const MAX_WAIT_SECONDS = 60 * 60;
 export const MIN_POLL_INTERVAL_SECONDS = 5;
 export const MAX_POLL_INTERVAL_SECONDS = 600;
@@ -10,10 +9,9 @@ export const MAX_STATE_ENTRIES = 10_000;
 export const MAX_LIST_ENTRIES = 100_000;
 /** PatchMon accepts at most 100 package names per run (maxPatchTargets). */
 export const MAX_PACKAGES_PER_RUN = 100;
-/** Patch Security Updates: hosts handled in one execution item. */
 export const MAX_HOSTS_PER_RUN = 1000;
 
-/** Short, stable hash of a string (cyrb53), used for small state keys and credential fingerprints. */
+/** cyrb53: short state keys and fingerprints, not a cryptographic hash. */
 export function stateKey(value: string): string {
 	let h1 = 0xdeadbeef;
 	let h2 = 0x41c6ce57;
@@ -34,10 +32,6 @@ export class SecurityError extends Error {
 	}
 }
 
-/**
- * Validates the Base URL of the credential: http(s) only, no credentials, query or fragment,
- * no traversal in an optional reverse proxy prefix, trailing slashes removed.
- */
 export function normalizeBaseUrl(raw: unknown): string {
 	if (typeof raw !== 'string' || raw.trim() === '') {
 		throw new SecurityError('Base URL is required (e.g. https://patchmon.example.com)');
@@ -95,7 +89,7 @@ export function isSafeKey(key: string): boolean {
 	return key !== '' && !FORBIDDEN_KEYS.has(key.toLowerCase());
 }
 
-/** True when a value has a "." or ".." path part, literally or after one round of decoding. */
+/** Also after one round of percent-decoding. */
 export function hasTraversal(value: string): boolean {
 	const variants = [value];
 	try {
@@ -122,10 +116,6 @@ function hasForbiddenEscape(path: string): boolean {
 	return /%(?![0-9a-f]{2})/i.test(path);
 }
 
-/**
- * Validates a Custom API Call path relative to the Base URL. Absolute URLs, traversal (also
- * encoded), query strings, fragments, empty segments and control characters are rejected.
- */
 export function validateApiPath(raw: unknown): string {
 	if (typeof raw !== 'string') throw new SecurityError('Path must be a string');
 	let path = raw.trim();
@@ -154,17 +144,11 @@ export type AccessType = 'integration' | 'session';
 export const API_PREFIX = '/api/v1';
 export const INTEGRATION_PREFIX = '/api/v1/api';
 
-/** Integration API routes: Basic Auth with the API token, nothing else. */
 export function isIntegrationPath(path: string): boolean {
 	return path === INTEGRATION_PREFIX || path.startsWith(`${INTEGRATION_PREFIX}/`);
 }
 
-/**
- * Session routes this node may call with the service user's token: the web UI API under
- * /api/v1, except the Integration API, the gethomepage widget API (its own token type) and
- * sign-in, session and two-factor management (a node never signs in, out or changes accounts
- * through Custom API Call).
- */
+/** gethomepage has its own token type; a node never signs in, out or changes accounts. */
 export function isSessionPath(path: string): boolean {
 	if (!path.startsWith(`${API_PREFIX}/`) || isIntegrationPath(path)) return false;
 	return !/^\/api\/v1\/(gethomepage|auth|tfa|internal)(\/|$)/i.test(path);
@@ -206,7 +190,6 @@ export function validateUuid(value: unknown, label: string): string {
 	return str.toLowerCase();
 }
 
-/** Other IDs used in paths (host group, repository): letters, digits, "-" and "_" only. */
 export function validateId(value: unknown, label: string): string {
 	const str = typeof value === 'number' ? String(value) : typeof value === 'string' ? value.trim() : '';
 	if (str === '') throw new SecurityError(`${label} is required`);
@@ -225,7 +208,7 @@ export function validatePackageName(value: unknown): string {
 	return str;
 }
 
-/** A host group reference for the Integration API filter: a UUID or a name without commas. */
+/** PatchMon splits the group filter on commas. */
 export function validateGroupRef(value: string): string {
 	const str = value.trim();
 	if (str === '' || str.length > 255 || hasControlChars(str) || str.includes(',')) {
@@ -242,7 +225,6 @@ export function validateText(value: unknown, label: string, maxLength = 500, req
 	return str;
 }
 
-/** Validates an integer within a range (also values that come from expressions). */
 export function validateInteger(value: unknown, label: string, min: number, max: number): number {
 	const n = typeof value === 'number' ? value : Number(String(value ?? '').trim());
 	if (!Number.isInteger(n) || n < min || n > max) {
@@ -251,7 +233,6 @@ export function validateInteger(value: unknown, label: string, min: number, max:
 	return n;
 }
 
-/** A list given as an array or as comma/newline separated text, trimmed and without empties. */
 export function toList(value: unknown, maxEntries = MAX_LIST_ENTRIES): string[] {
 	const raw = Array.isArray(value) ? value.map((v) => String(v ?? '')) : String(value ?? '').split(/[,\n]/);
 	const out = raw.map((s) => s.trim()).filter((s) => s !== '');
@@ -271,7 +252,6 @@ const SECRET_PATTERNS: RegExp[] = [
 	/((?:Set-)?Cookie\s{0,8}[:=]\s{0,8})[^\r\n"]{1,4096}/gi,
 ];
 
-/** Removes known secret values (also URL encoded) and well-known secret formats from text. */
 export function redactString(text: string, secrets: readonly string[] = []): string {
 	let out = text;
 	for (const secret of secrets) {
@@ -293,7 +273,6 @@ function isSecretKey(key: string): boolean {
 	return SECRET_KEYS.has(k) || k.includes('password') || k.includes('secret') || k.endsWith('token') || k === 'token_key';
 }
 
-/** Deep copy of a value with secret keys redacted and secret values removed from strings. */
 export function redactValue<T>(value: T, secrets: readonly string[] = [], depth = 0): T {
 	if (depth > 32) return (value !== null && typeof value === 'object' ? '[TRUNCATED]' : redactValue(value, secrets, 0)) as T;
 	if (typeof value === 'string') return redactString(value, secrets) as unknown as T;

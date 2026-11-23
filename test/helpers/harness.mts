@@ -34,7 +34,6 @@ export function credentials(server: { url: string }, extra: IDataObject = {}): I
 	return { baseUrl: server.url, tokenKey: TOKEN_KEY, tokenSecret: TOKEN_SECRET, username: USERNAME, password: PASSWORD, ...extra };
 }
 
-/** Integration API token only. */
 export function integrationOnly(server: { url: string }, extra: IDataObject = {}): ICredentialDataDecryptedObject {
 	return { baseUrl: server.url, tokenKey: TOKEN_KEY, tokenSecret: TOKEN_SECRET, ...extra };
 }
@@ -247,7 +246,6 @@ export async function poll(opts: PollOptions): Promise<IDataObject[] | null> {
 	return result ? result[0].map((i) => i.json) : null;
 }
 
-/** Evaluates an n8n "={{ ... }}" expression of the credential test with $credentials. */
 export function evalCredentialExpression(expr: unknown, creds: ICredentialDataDecryptedObject): unknown {
 	if (typeof expr !== 'string' || !expr.startsWith('={{')) return expr;
 	const code = expr.slice(3, -2);

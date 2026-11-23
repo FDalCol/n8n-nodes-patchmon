@@ -4,11 +4,8 @@ import { MAX_LIST_ENTRIES, redactString, SecurityError, validateInteger } from '
 import type { PatchMonClient } from './transport';
 
 export type OperationResult =
-	/** One item. */
 	| { kind: 'data'; data: unknown }
-	/** A list: one item per entry, or one item with a "data" array when Split Into Items is off. */
 	| { kind: 'list'; data: unknown }
-	/** Always one item per entry. */
 	| { kind: 'items'; data: IDataObject[] };
 
 export type OperationHandler = (ctx: OperationContext) => Promise<OperationResult>;
@@ -57,7 +54,7 @@ export class OperationContext {
 		}
 	}
 
-	/** The limit is validated also when it comes from an expression. */
+	/** Validated also when it comes from an expression. */
 	limit(): number | undefined {
 		if (this.bool('returnAll', false)) return undefined;
 		return this.guard(() => validateInteger(this.param('limit', 50), 'Limit', 1, MAX_LIST_ENTRIES));
@@ -71,7 +68,6 @@ function toJson(value: unknown): IDataObject {
 	return { value: value as string | number | boolean };
 }
 
-/** Applies Return All / Limit to a list (and the global hard limit). */
 export function applyLimit<T>(rows: T[], limit: number | undefined): T[] {
 	return rows.slice(0, Math.min(limit ?? MAX_LIST_ENTRIES, MAX_LIST_ENTRIES));
 }
@@ -89,7 +85,6 @@ export function finalize(ctx: OperationContext, result: OperationResult): INodeE
 	);
 }
 
-/** Converts any thrown error into a safe message/description without secrets. */
 export function safeError(client: PatchMonClient | undefined, error: unknown): { message: string; description?: string } {
 	const e = error as { message?: string; description?: string | null };
 	let message = typeof e?.message === 'string' && e.message ? e.message : 'Unknown error';
