@@ -41,7 +41,8 @@ The PatchMon API credential has two parts.
 
 | Field | Description |
 |---|---|
-| Base URL | Address of PatchMon without `/api/v1`, for example `https://patchmon.example.com`. http or https only, without user, query or fragment. Trailing slashes are removed. |
+| Base URL | Address of PatchMon without `/api/v1`, for example `https://patchmon.example.com`. https only (http with Allow Insecure HTTP), without user, query or fragment. Trailing slashes are removed. |
+| Allow Insecure HTTP | Allows an `http://` Base URL. Trusted local networks only: the token secret, password and access token travel unencrypted. Off by default. |
 | Token Key, Token Secret | An Integration API token. Sent as Basic Auth only to `/api/v1/api/*`. |
 | Username, Password | Optional service user. Needed only for host groups, repositories, patch policies and patching. |
 
@@ -100,8 +101,18 @@ The service user operations use PatchMon's internal web UI API. It is not a publ
 change between PatchMon versions.
 
 Trigger Patch, Approve Run and Patch Security Updates install updates on hosts. Cancel Run stops a
-run. Their descriptions tell an AI agent to use them only on explicit request. All other
-operations only read data.
+run. All other operations only read data.
+
+### Use as an AI tool
+
+The node can be used as a tool by an AI agent. The descriptions of the operations that install
+updates or cancel runs tell the agent to use them only on explicit request, but an agent can be
+misled, for example by text in package descriptions or host notes. With Custom API Call it can
+also reach any web UI route the service user is allowed to use.
+
+For agents, use a separate credential whose service user has only `can_view_hosts`, without
+`can_manage_patching`. The node then refuses to start, approve or cancel runs before sending
+anything.
 
 Lists support Return All / Limit and Split Into Items (on by default). Errors carry PatchMon's
 message. With Continue On Fail the failing item returns `{ error }`.
@@ -151,7 +162,7 @@ returns a real example from current data. Filters: host IDs and host groups.
 
 | Event | Fires when | Access |
 |---|---|---|
-| New Security Updates | A host has a security update (package and version) it did not have at the previous poll | Integration API |
+| New Security Updates | The list of a host's security updates (package and available version) changed and has updates the host did not have at the previous poll; the item lists only those | Integration API |
 | Patch Run Finished | A run ends `completed` | Service user |
 | Patch Run Failed | A run ends `failed`, `timed_out` or `agent_disconnected` (dry runs optional) | Service user |
 | Host Offline | No contact from the agent for N minutes (`last_update`); fires once until the host reports again | Integration API |
@@ -164,11 +175,18 @@ Example item for Patch Run Failed:
   "completed_at": "2026-11-20T02:14:00Z" }
 ```
 
-State is deduplicated and bounded (10,000 entries). After a sign-in failure the trigger stops
-signing in, so polls do not keep PatchMon's lockout active; the error is reported once:
+State is deduplicated and bounded. New Security Updates keeps one fingerprint per host with
+updates, plus short hashes of up to 1,000 of its packages; on a host with more pending security
+updates, the ones beyond 1,000 can be reported again when its list changes. The other events
+keep up to 10,000 entries.
 
-- 401: until the credential changes (save the corrected credential);
-- 429: as long as PatchMon asks.
+After a sign-in failure the trigger waits before signing in again, so polls do not keep
+PatchMon's lockout active:
+
+- 401: 1 hour, doubled after each failed attempt up to 24 hours. Every failed attempt is
+  reported with the time of the next one. A corrected credential (saved and tested) is tried at
+  the next poll.
+- 429: as long as PatchMon asks (Retry-After); reported once.
 
 ## Security
 
@@ -176,6 +194,8 @@ signing in, so polls do not keep PatchMon's lockout active; the error is reporte
   other `/api/v1` routes of the Base URL. Neither ever appears in a URL.
 - The password is sent only in the body of the sign-in request. Token, secret and password are
   removed from outputs, errors and messages, also with Continue On Fail.
+- https only, unless Allow Insecure HTTP is enabled. Without it an `http://` Base URL is
+  refused before anything is sent.
 - No redirect is followed. Requests time out after 60 s without data (30 s for sign-in);
   responses over 64 MiB are aborted.
 - IDs used in paths are validated. Custom API Call refuses absolute URLs, path traversal (also
