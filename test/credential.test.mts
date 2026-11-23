@@ -37,7 +37,7 @@ describe('credential', () => {
 			'sessionPermissions',
 		]);
 		expect(credentialType.name).toBe('patchMonApi');
-		expect(byName.sessionPermissions).toMatchObject({ type: 'hidden', default: '', typeOptions: { password: true } });
+		expect(byName.sessionPermissions).toMatchObject({ type: 'hidden', default: '' });
 		expect(credentialType.displayName).toBe('PatchMon API');
 		expect(byName.tokenSecret.typeOptions).toEqual({ password: true });
 		expect(byName.password.typeOptions).toEqual({ password: true });

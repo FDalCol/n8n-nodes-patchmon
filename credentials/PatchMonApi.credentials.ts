@@ -96,7 +96,6 @@ export class PatchMonApi implements ICredentialType {
 			displayName: 'Session Permissions',
 			name: 'sessionPermissions',
 			type: 'hidden',
-			typeOptions: { password: true },
 			// Read at sign-in, checked by the credential test
 			default: '',
 		},
