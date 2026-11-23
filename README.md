@@ -6,8 +6,8 @@ policies, starts, approves and cancels patch runs, and patches pending security 
 hosts. The trigger starts workflows on new security updates, finished or failed patch runs and
 offline hosts.
 
-Requires n8n 2.45.0 or later. Verified against the PatchMon server source of v2.1.8 (tested) and
-of `main` after v2.1.8: the routes, handlers and middleware used here are unchanged.
+Requires n8n 2.45.0 or later. Verified against the PatchMon server source of v2.1.8 (tested).
+The routes, handlers and middleware used here are unchanged on `main` after v2.1.8.
 
 This project is not affiliated with or endorsed by PatchMon or its authors.
 
@@ -62,19 +62,19 @@ web UI, which needs a signed-in user. Create a dedicated local user for n8n:
 - local sign-in enabled (an SSO-only user cannot be used).
 
 n8n signs in with `POST /api/v1/auth/login` only when it has no access token or PatchMon refuses
-it (401), at most once per execution, and stores the token encrypted in the credential. The token
-is sent as `Authorization: Bearer` only to the Base URL and user it was issued for. Every sign-in
-uses the same `X-Device-ID`, so PatchMon reuses one session for n8n. Access tokens last one hour
-by default (`JWT_EXPIRES_IN`); after that the next request signs in again.
+it (401). It signs in at most once per execution and stores the token encrypted in the credential.
+The token is sent as `Authorization: Bearer` only to the Base URL and user it was issued for.
+Every sign-in uses the same `X-Device-ID`, so PatchMon reuses one session. Access tokens last one
+hour by default (`JWT_EXPIRES_IN`).
 
 Missing permissions never make the sign-in fail. Trigger Patch, Approve Run, Cancel Run and
-Patch Security Updates (without Dry Run) read the role's permissions once per execution and stop
-before sending anything when `can_manage_patching` is missing, with an error that names it.
+Patch Security Updates (without Dry Run) read the role's permissions once per execution. Without
+`can_manage_patching` they stop before sending anything, with an error that names it.
 
 ### Credential test
 
 The test calls `GET /api/v1/api/hosts` with the token. With a service user, it first signs in and
-reads the role's permissions: it fails if `can_view_hosts` is missing, while a missing
+reads the role's permissions. It fails if `can_view_hosts` is missing; a missing
 `can_manage_patching` is reported by the operations that need it. It also reports a wrong token
 (401), a missing scope or IP restriction (403), a wrong password, MFA, local sign-in turned off
 and the sign-in lockout (429).
@@ -99,9 +99,9 @@ and the sign-in lockout (429).
 The service user operations use PatchMon's internal web UI API. It is not a public API and can
 change between PatchMon versions.
 
-Trigger Patch, Approve Run and Patch Security Updates install updates on hosts; Cancel Run stops a
-run. Their descriptions tell an AI agent to use them only on explicit request. Everything else
-only reads data.
+Trigger Patch, Approve Run and Patch Security Updates install updates on hosts. Cancel Run stops a
+run. Their descriptions tell an AI agent to use them only on explicit request. All other
+operations only read data.
 
 Lists support Return All / Limit and Split Into Items (on by default). Errors carry PatchMon's
 message. With Continue On Fail the failing item returns `{ error }`.
@@ -129,8 +129,8 @@ packages PatchMon flags as `is_security_update`, `dry_run: false` and `pending_a
 following the patch policy unless Run Immediately is on.
 
 All reads happen first. If the sign-in fails or the Integration API answers unexpectedly, the node
-fails before starting anything. Then the runs are started; an error on one host is reported for
-that host and the others go on. Hosts are skipped (with a reason) when they have no security
+fails before starting anything. Then the runs are started. An error on one host is reported for
+that host and the others go on. Hosts are skipped, with a reason, when they have no security
 updates, have an active or scheduled run, run Arch Linux, or are excluded. Dry Run starts nothing
 and returns what would be started. Max Hosts (default 100) refuses larger selections.
 
