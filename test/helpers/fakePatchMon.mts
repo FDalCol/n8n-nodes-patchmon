@@ -104,7 +104,7 @@ function defaultHosts(): Host[] {
 		{
 			id: HOST_A,
 			friendly_name: 'web-01',
-			hostname: 'web-01.example.lan',
+			hostname: 'web-01.example',
 			ip: '192.0.2.11',
 			os_type: 'Ubuntu',
 			os_version: '24.04',
@@ -119,7 +119,7 @@ function defaultHosts(): Host[] {
 		{
 			id: HOST_B,
 			friendly_name: 'db-01',
-			hostname: 'db-01.example.lan',
+			hostname: 'db-01.example',
 			ip: '192.0.2.12',
 			os_type: 'Debian',
 			os_version: '12',
@@ -134,7 +134,7 @@ function defaultHosts(): Host[] {
 		{
 			id: HOST_ARCH,
 			friendly_name: 'arch-lab',
-			hostname: 'arch-lab.example.lan',
+			hostname: 'arch-lab.example',
 			ip: '192.0.2.13',
 			os_type: 'Arch Linux',
 			os_version: 'rolling',
@@ -149,7 +149,7 @@ function defaultHosts(): Host[] {
 		{
 			id: HOST_CLEAN,
 			friendly_name: 'clean-01',
-			hostname: 'clean-01.example.lan',
+			hostname: 'clean-01.example',
 			ip: '192.0.2.14',
 			os_type: 'Rocky Linux',
 			os_version: '9',
