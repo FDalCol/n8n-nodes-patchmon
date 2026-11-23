@@ -20,13 +20,13 @@ From npm: Settings → Community Nodes → Install → `n8n-nodes-patchmon`.
 1. Copy the package file into the container (here named `n8n`):
 
 ```bash
-docker cp n8n-nodes-patchmon-0.1.0.tgz n8n:/tmp/
+docker cp n8n-nodes-patchmon-0.1.1.tgz n8n:/tmp/
 ```
 
 2. Install it in `~/.n8n/nodes`:
 
 ```bash
-docker exec -it n8n sh -c "mkdir -p ~/.n8n/nodes && cd ~/.n8n/nodes && npm install --legacy-peer-deps /tmp/n8n-nodes-patchmon-0.1.0.tgz"
+docker exec -it n8n sh -c "mkdir -p ~/.n8n/nodes && cd ~/.n8n/nodes && npm install --legacy-peer-deps /tmp/n8n-nodes-patchmon-0.1.1.tgz"
 ```
 
 3. Restart n8n:
@@ -103,6 +103,9 @@ change between PatchMon versions.
 Trigger Patch, Approve Run and Patch Security Updates install updates on hosts. Cancel Run stops a
 run. All other operations only read data.
 
+Lists support Return All / Limit and Split Into Items (on by default). Errors carry PatchMon's
+message. With Continue On Fail the failing item returns `{ error }`.
+
 ### Use as an AI tool
 
 The node can be used as a tool by an AI agent. The descriptions of the operations that install
@@ -113,9 +116,6 @@ also reach any web UI route the service user is allowed to use.
 For agents, use a separate credential whose service user has only `can_view_hosts`, without
 `can_manage_patching`. The node then refuses to start, approve or cancel runs before sending
 anything.
-
-Lists support Return All / Limit and Split Into Items (on by default). Errors carry PatchMon's
-message. With Continue On Fail the failing item returns `{ error }`.
 
 ### Trigger Patch
 
@@ -139,8 +139,9 @@ names). For every host with security updates it starts one `patch_package` run w
 packages PatchMon flags as `is_security_update`, `dry_run: false` and `pending_approval: false`,
 following the patch policy unless Run Immediately is on.
 
-All reads happen first. If the sign-in fails or the Integration API answers unexpectedly, the node
-fails before starting anything. Then the runs are started. An error on one host is reported for
+All reads happen first: hosts and packages (Integration API), active runs and package managers
+(service user). If any of them fails, the node fails before starting anything; only a host that
+no longer exists is reported as an error for that host. Then the runs are started. An error on one host is reported for
 that host and the others go on. Hosts are skipped, with a reason, when they have no security
 updates, have an active or scheduled run, run Arch Linux, or are excluded. Dry Run starts nothing
 and returns what would be started. Max Hosts (default 100) refuses larger selections.
