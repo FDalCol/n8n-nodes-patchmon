@@ -22,6 +22,8 @@ const call = (extra: Record<string, unknown>) => ({ resource: 'customApiCall', o
 describe('Base URL', () => {
 	it('accepts http(s) with an optional prefix and refuses anything else', () => {
 		expect(normalizeBaseUrl(' https://pm.example.com/patchmon// ')).toBe('https://pm.example.com/patchmon');
+		expect(() => normalizeBaseUrl('http://pm.example.com')).toThrow(/Allow Insecure HTTP/);
+		expect(normalizeBaseUrl('http://pm.example.com/', true)).toBe('http://pm.example.com');
 		for (const bad of [
 			'ftp://pm.example.com',
 			'https://user:pass@pm.example.com',
@@ -49,6 +51,12 @@ describe('Custom API Call', () => {
 		expect(runs[0]).toMatchObject({ runs: [], pagination: { limit: 5 } });
 		expect(server.requests.filter((r) => r.path.startsWith('/api/v1/api/')).every((r) => String(r.headers.authorization).startsWith('Basic '))).toBe(true);
 		expect(server.crossedCredentials).toEqual([]);
+	});
+
+	it('a node run with an http:// Base URL fails clearly without sending anything', async () => {
+		const err = await runNodeError({ credentials: integrationOnly(server, { allowHttp: false }), params: { resource: 'host', operation: 'getAll', returnAll: true } });
+		expect(err.message).toBe('Base URL uses http://. Use https:// or explicitly enable "Allow Insecure HTTP" in the credential');
+		expect(server.requests).toHaveLength(0);
 	});
 
 	it('refuses absolute URLs, traversal (also encoded) and paths outside the access type', async () => {

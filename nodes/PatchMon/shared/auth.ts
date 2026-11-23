@@ -82,6 +82,11 @@ function str(raw: ICredentialDataDecryptedObject, key: string, trim = true): str
 	return trim ? v.trim() : v;
 }
 
+/** http:// only when the credential explicitly allows it. */
+export function credentialBaseUrl(raw: ICredentialDataDecryptedObject): string {
+	return normalizeBaseUrl(raw.baseUrl, raw.allowHttp === true);
+}
+
 export function serviceUsername(raw: ICredentialDataDecryptedObject): string {
 	return str(raw, 'username');
 }
@@ -100,7 +105,7 @@ export function credentialSecrets(raw: ICredentialDataDecryptedObject): { secret
 
 /** Has no service user and no `sessionToken` field, so n8n never signs in for Integration API requests. */
 export function integrationCredentials(raw: ICredentialDataDecryptedObject): ICredentialDataDecryptedObject {
-	return { baseUrl: raw.baseUrl, tokenKey: raw.tokenKey, tokenSecret: raw.tokenSecret };
+	return { baseUrl: raw.baseUrl, allowHttp: raw.allowHttp, tokenKey: raw.tokenKey, tokenSecret: raw.tokenSecret };
 }
 
 export function hasPermission(permissions: IDataObject, permission: string): boolean {
@@ -135,7 +140,7 @@ export function credentialToken(raw: ICredentialDataDecryptedObject): string {
 	if (!ACCESS_TOKEN_RE.test(token) || !hasServiceUser(raw)) return '';
 	let baseUrl: string;
 	try {
-		baseUrl = normalizeBaseUrl(raw.baseUrl);
+		baseUrl = credentialBaseUrl(raw);
 	} catch {
 		return '';
 	}
@@ -149,7 +154,7 @@ export function signInIdentity(raw: ICredentialDataDecryptedObject): { account: 
 	if (!hasServiceUser(raw)) return undefined;
 	let baseUrl: string;
 	try {
-		baseUrl = normalizeBaseUrl(raw.baseUrl);
+		baseUrl = credentialBaseUrl(raw);
 	} catch {
 		baseUrl = String(raw.baseUrl ?? '');
 	}
@@ -163,7 +168,7 @@ export function signInIdentity(raw: ICredentialDataDecryptedObject): { account: 
 export function authorizationFor(raw: ICredentialDataDecryptedObject, options: IHttpRequestOptions): string | undefined {
 	let baseUrl: string;
 	try {
-		baseUrl = normalizeBaseUrl(raw.baseUrl);
+		baseUrl = credentialBaseUrl(raw);
 	} catch {
 		return undefined;
 	}
@@ -330,18 +335,19 @@ export async function preAuthenticate(
 ): Promise<IDataObject> {
 	const user = serviceUsername(raw);
 	const pass = servicePassword(raw);
-	if (user === '') {
-		if (pass !== '') throw new PatchMonSignInError('Username is required when a service user Password is set');
-		return {};
-	}
+	// Checked first: the credential test runs this step also without a service user
 	let baseUrl = '';
 	let invalidUrl = '';
 	try {
-		baseUrl = normalizeBaseUrl(raw.baseUrl);
+		baseUrl = credentialBaseUrl(raw);
 	} catch (error) {
 		invalidUrl = (error as Error).message;
 	}
 	if (invalidUrl) throw new PatchMonSignInError(invalidUrl);
+	if (user === '') {
+		if (pass !== '') throw new PatchMonSignInError('Username is required when a service user Password is set');
+		return {};
+	}
 	if (pass === '') throw new PatchMonSignInError('Password is required when a service user Username is set');
 	if (user.length > MAX_USERNAME_LENGTH || hasControlChars(user)) {
 		throw new PatchMonSignInError('Username is too long or contains control characters');

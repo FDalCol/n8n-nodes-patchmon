@@ -27,6 +27,8 @@ describe('credential', () => {
 		const byName = Object.fromEntries(credentialType.properties.map((p) => [p.name, p]));
 		expect(Object.keys(byName)).toEqual([
 			'baseUrl',
+			'allowHttp',
+			'httpNotice',
 			'tokenKey',
 			'tokenSecret',
 			'serviceUserNotice',
@@ -37,6 +39,8 @@ describe('credential', () => {
 			'sessionPermissions',
 		]);
 		expect(credentialType.name).toBe('patchMonApi');
+		expect(byName.allowHttp).toMatchObject({ type: 'boolean', default: false });
+		expect(byName.httpNotice.displayOptions).toEqual({ show: { allowHttp: [true] } });
 		expect(byName.sessionPermissions).toMatchObject({ type: 'hidden', default: '' });
 		expect(credentialType.displayName).toBe('PatchMon API');
 		expect(byName.tokenSecret.typeOptions).toEqual({ password: true });
@@ -97,7 +101,8 @@ describe('credential', () => {
 		expect(req.maxResponseBodyBytes).toBe(16 * 1024 * 1024);
 		expect(req.timeout).toBe(30_000);
 		expect(evalCredentialExpression(req.baseURL, { baseUrl: 'https://pm.example.com//' })).toBe('https://pm.example.com');
-		for (const bad of ['ftp://x', 'http://u:p@x', 'http://x/?a=1', 'http://x/#f', 'javascript:alert(1)', '']) {
+		expect(evalCredentialExpression(req.baseURL, { baseUrl: 'http://pm.lan:3000', allowHttp: true })).toBe('http://pm.lan:3000');
+		for (const bad of ['http://pm.lan:3000', 'ftp://x', 'http://u:p@x', 'http://x/?a=1', 'http://x/#f', 'javascript:alert(1)', '']) {
 			expect(String(evalCredentialExpression(req.baseURL, { baseUrl: bad })), bad).toMatch(/\.invalid$/);
 		}
 	});
@@ -178,6 +183,18 @@ describe('credential', () => {
 	it('the Integration API test does not need a service user permission check', async () => {
 		server.permissions = new Set();
 		expect((await runCredentialTest(integrationOnly(server))).status).toBe('OK');
+	});
+
+	it('refuses http:// unless Allow Insecure HTTP is enabled, with a clear message', async () => {
+		const expected = 'Base URL uses http://. Use https:// or explicitly enable "Allow Insecure HTTP" in the credential';
+		// With and without a service user: nothing is sent to the server
+		expect(await runCredentialTest(integrationOnly(server, { allowHttp: false }))).toEqual({ status: 'Error', message: expected });
+		expect(await runCredentialTest(credentials(server, { allowHttp: false }))).toEqual({ status: 'Error', message: expected });
+		expect(server.requests).toHaveLength(0);
+		// No secret is attached to an http request without the option
+		const plain = { baseUrl: 'http://pm.lan', tokenKey: TOKEN_KEY, tokenSecret: TOKEN_SECRET };
+		expect((await authenticate(plain, { url: 'http://pm.lan/api/v1/api/hosts' })).headers).toBeUndefined();
+		expect((await authenticate({ ...plain, allowHttp: true }, { url: 'http://pm.lan/api/v1/api/hosts' })).headers?.Authorization).toBe(BASIC);
 	});
 
 	it('requires both Username and Password for the service user', async () => {

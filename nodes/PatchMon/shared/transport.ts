@@ -12,6 +12,7 @@ import {
 } from 'n8n-workflow';
 
 import {
+	credentialBaseUrl,
 	credentialSecrets,
 	credentialToken,
 	findSignInError,
@@ -25,7 +26,6 @@ import { describeNetworkError, errorCode, errorDetail, readBody, tooLargeMessage
 import {
 	assertAccessPath,
 	MAX_RESPONSE_BYTES,
-	normalizeBaseUrl,
 	redactString,
 	redactValue,
 	REQUEST_TIMEOUT_MS,
@@ -91,7 +91,7 @@ export class PatchMonClient {
 		private readonly ctx: PatchMonContext,
 		private raw: ICredentialDataDecryptedObject,
 	) {
-		this.baseUrl = normalizeBaseUrl(raw.baseUrl);
+		this.baseUrl = credentialBaseUrl(raw);
 		this.renewed = credentialToken(raw) === '';
 		this.addSecrets(raw);
 	}

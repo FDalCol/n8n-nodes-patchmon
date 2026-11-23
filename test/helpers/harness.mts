@@ -29,13 +29,13 @@ const { httpRequest } = requireCjs(
 
 export type Params = Record<string, unknown>;
 
-/** Integration API token and service user, as stored by n8n (no session token yet). */
+/** Integration API token and service user, as stored by n8n (no session token yet). The fake server is plain http. */
 export function credentials(server: { url: string }, extra: IDataObject = {}): ICredentialDataDecryptedObject {
-	return { baseUrl: server.url, tokenKey: TOKEN_KEY, tokenSecret: TOKEN_SECRET, username: USERNAME, password: PASSWORD, ...extra };
+	return { baseUrl: server.url, allowHttp: true, tokenKey: TOKEN_KEY, tokenSecret: TOKEN_SECRET, username: USERNAME, password: PASSWORD, ...extra };
 }
 
 export function integrationOnly(server: { url: string }, extra: IDataObject = {}): ICredentialDataDecryptedObject {
-	return { baseUrl: server.url, tokenKey: TOKEN_KEY, tokenSecret: TOKEN_SECRET, ...extra };
+	return { baseUrl: server.url, allowHttp: true, tokenKey: TOKEN_KEY, tokenSecret: TOKEN_SECRET, ...extra };
 }
 
 export const credentialType = new PatchMonApi();

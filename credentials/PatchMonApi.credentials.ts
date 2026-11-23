@@ -30,7 +30,23 @@ export class PatchMonApi implements ICredentialType {
 			required: true,
 			placeholder: 'https://patchmon.example.com',
 			description:
-				'Address of the PatchMon server (http:// or https://, optional path prefix of a reverse proxy), without /api/v1. Must not contain credentials, query or fragment.',
+				'Address of the PatchMon server (https://, optional path prefix of a reverse proxy), without /api/v1. Must not contain credentials, query or fragment.',
+		},
+		{
+			displayName: 'Allow Insecure HTTP',
+			name: 'allowHttp',
+			type: 'boolean',
+			default: false,
+			description:
+				'Whether to allow a Base URL starting with http://. Only enable this for a trusted local network: the token secret, password and access token are then sent unencrypted.',
+		},
+		{
+			displayName:
+				'Warning: with plain HTTP the token secret, password and access token travel unencrypted. Use HTTPS whenever possible.',
+			name: 'httpNotice',
+			type: 'notice',
+			default: '',
+			displayOptions: { show: { allowHttp: [true] } },
 		},
 		{
 			displayName: 'Token Key',
@@ -126,10 +142,10 @@ export class PatchMonApi implements ICredentialType {
 	/** preAuthentication runs first: the test fails if the service user lacks can_view_hosts. */
 	test: ICredentialTestRequest = {
 		request: {
-			// http(s) only, without credentials, query or fragment. Anything else resolves to an
-			// unreachable .invalid host, so the test fails without contacting any server.
+			// https only; http only when explicitly allowed. Anything else resolves to an unreachable
+			// .invalid host, so the test fails without contacting any server.
 			baseURL:
-				'={{ /^https?:\\/\\/[^\\/@?#]+(\\/[^?#@]*)?$/i.test(String($credentials.baseUrl || "").trim()) ? String($credentials.baseUrl).trim().replace(/\\/+$/, "") : "https://base-url-must-be-http-or-https-without-credentials-query-or-fragment.invalid" }}',
+				'={{ (/^https:\\/\\/[^\\/@?#]+(\\/[^?#@]*)?$/i.test(String($credentials.baseUrl || "").trim()) || ($credentials.allowHttp === true && /^http:\\/\\/[^\\/@?#]+(\\/[^?#@]*)?$/i.test(String($credentials.baseUrl || "").trim()))) ? String($credentials.baseUrl).trim().replace(/\\/+$/, "") : "https://base-url-must-use-https-without-credentials-query-or-fragment.invalid" }}',
 			url: '/api/v1/api/hosts',
 			method: 'GET',
 			headers: {

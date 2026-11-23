@@ -32,7 +32,7 @@ export class SecurityError extends Error {
 	}
 }
 
-export function normalizeBaseUrl(raw: unknown): string {
+export function normalizeBaseUrl(raw: unknown, allowHttp = false): string {
 	if (typeof raw !== 'string' || raw.trim() === '') {
 		throw new SecurityError('Base URL is required (e.g. https://patchmon.example.com)');
 	}
@@ -43,7 +43,10 @@ export function normalizeBaseUrl(raw: unknown): string {
 	const parsed = new URL(trimmed);
 	const protocol = parsed.protocol.toLowerCase();
 	if (protocol !== 'https:' && protocol !== 'http:') {
-		throw new SecurityError('Base URL must start with http:// or https://');
+		throw new SecurityError('Base URL must start with https://');
+	}
+	if (protocol === 'http:' && !allowHttp) {
+		throw new SecurityError('Base URL uses http://. Use https:// or explicitly enable "Allow Insecure HTTP" in the credential');
 	}
 	if (parsed.username !== '' || parsed.password !== '' || /^[a-z]+:\/\/[^/]*@/i.test(trimmed)) {
 		throw new SecurityError('Base URL must not contain credentials');
