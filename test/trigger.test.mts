@@ -51,12 +51,55 @@ describe('New Security Updates', () => {
 		expect(await poll({ credentials: integrationOnly(server), params, staticData })).toHaveLength(1);
 	});
 
+	it('keeps one fingerprint per host: state bounded by hosts, no repeated events with many updates', async () => {
+		const staticData: IDataObject = {};
+		const params = { event: 'newSecurityUpdates', maxHosts: 1000 };
+		const many = (prefix: string, n: number) =>
+			Array.from({ length: n }, (_, i) => ({ id: `${prefix}-${i}`, name: `${prefix}-pkg-${i}`, current_version: '1', available_version: '2', needs_update: true, is_security_update: true }));
+		server.host(HOST_A).packages = many('a', 400);
+		server.host(HOST_B).packages = many('b', 30);
+		expect(await poll({ credentials: integrationOnly(server), params, staticData })).toBeNull();
+		const hosts = staticData.hosts as Record<string, { f: string; p: string[] }>;
+		expect(Object.keys(hosts)).toHaveLength(3);
+		expect(Object.values(hosts).map((h) => h.p.length).sort((x, y) => x - y)).toEqual([1, 30, 400]);
+		expect(Object.values(hosts).every((h) => h.p.every((k) => k.length <= 8))).toBe(true);
+		expect(staticData.seen).toBeUndefined();
+		// Unchanged updates never fire again
+		for (let i = 0; i < 3; i++) expect(await poll({ credentials: integrationOnly(server), params, staticData })).toBeNull();
+		// One new update on the large host: only that one is reported
+		server.host(HOST_A).packages = [...many('a', 400), ...many('z', 1)];
+		const items = await poll({ credentials: integrationOnly(server), params, staticData });
+		expect(items).toHaveLength(1);
+		expect(items![0]).toMatchObject({ host_id: HOST_A, security_updates_count: 401 });
+		expect((items![0].new_security_updates as IDataObject[]).map((p) => p.name)).toEqual(['z-pkg-0']);
+		// An installed update changes the fingerprint but brings nothing new: no event
+		server.host(HOST_B).packages = many('b', 29);
+		expect(await poll({ credentials: integrationOnly(server), params, staticData })).toBeNull();
+	});
+
+	it('keeps at most 1000 package hashes per host', async () => {
+		const staticData: IDataObject = {};
+		const params = { event: 'newSecurityUpdates', filters: { hostIds: HOST_A } };
+		server.host(HOST_A).packages = Array.from({ length: 1200 }, (_, i) => ({
+			id: `p-${i}`,
+			name: `pkg-${i}`,
+			current_version: '1',
+			available_version: '2',
+			needs_update: true,
+			is_security_update: true,
+		}));
+		expect(await poll({ credentials: integrationOnly(server), params, staticData })).toBeNull();
+		const [entry] = Object.values(staticData.hosts as Record<string, { p: string[] }>);
+		expect(entry.p).toHaveLength(1000);
+		expect(await poll({ credentials: integrationOnly(server), params, staticData })).toBeNull();
+	});
+
 	it('filters by host and group; test mode returns a real example and keeps the state', async () => {
 		const staticData: IDataObject = {};
 		const sample = await poll({ credentials: integrationOnly(server), params: { event: 'newSecurityUpdates', filters: { groups: 'Lab' } }, staticData, mode: 'manual' });
 		expect(sample).toHaveLength(1);
 		expect(sample![0]).toMatchObject({ host_name: 'arch-lab', new_security_updates: [expect.objectContaining({ name: 'glibc' })] });
-		expect(staticData.seen).toBeUndefined();
+		expect(staticData.hosts).toBeUndefined();
 		expect(server.requests[0].query.get('hostgroup')).toBe('Lab');
 	});
 });
@@ -120,19 +163,38 @@ describe('Patch Run Finished / Failed', () => {
 		await expect(poll({ credentials: integrationOnly(server), params: { event: 'patchRunFinished' }, staticData: {} })).rejects.toThrow(/needs the service user/);
 	});
 
-	it('after a 401 sign-in it pauses until the credential changes, reporting the error once', async () => {
+	it('after a 401 sign-in it waits 1 h, doubled up to 24 h, and reports every failed attempt', async () => {
 		const staticData: IDataObject = {};
 		const bad = credentials(server, { password: 'wrong-password' });
 		const params = { event: 'patchRunFailed' };
-		await expect(poll({ credentials: bad, params, staticData })).rejects.toThrow(/401/);
-		expect(await poll({ credentials: bad, params, staticData })).toBeNull();
+		const pause = () => staticData.signInPause as IDataObject;
+		const hoursLeft = () => (Date.parse(String(pause().until)) - Date.now()) / 3_600_000;
+		const expire = () => (pause().until = new Date(Date.now() - 1000).toISOString());
+
+		const first = await poll({ credentials: bad, params, staticData }).catch((e: Error & { description?: string }) => e);
+		expect((first as Error).message).toMatch(/401/);
+		expect((first as { description?: string }).description).toMatch(/Next sign-in attempt after \d{4}-/);
+		expect(pause()).toMatchObject({ status: 401, failures: 1 });
+		expect(hoursLeft()).toBeGreaterThan(0.99);
+		expect(hoursLeft()).toBeLessThanOrEqual(1);
+		// During the wait: no sign-in, no error
 		expect(await poll({ credentials: bad, params, staticData })).toBeNull();
 		expect(server.logins).toHaveLength(1);
-		const pause = JSON.stringify(staticData);
-		for (const secret of ['wrong-password', PASSWORD, TOKEN_SECRET]) expect(pause).not.toContain(secret);
-		// A corrected credential (n8n stores a new fingerprint when it is saved and tested) resumes
+
+		for (const [failures, hours] of [[2, 2], [3, 4], [4, 8], [5, 16], [6, 24], [7, 24]] as const) {
+			expire();
+			await expect(poll({ credentials: bad, params, staticData })).rejects.toThrow(/401/);
+			expect(pause().failures).toBe(failures);
+			expect(hoursLeft()).toBeGreaterThan(hours - 0.01);
+			expect(hoursLeft()).toBeLessThanOrEqual(hours);
+		}
+		expect(server.logins).toHaveLength(7);
+		const stored = JSON.stringify(staticData);
+		for (const secret of ['wrong-password', PASSWORD, TOKEN_SECRET]) expect(stored).not.toContain(secret);
+
+		// A corrected credential (n8n stores a new fingerprint when it is saved and tested) is tried at once
 		expect(await poll({ credentials: credentials(server, { sessionTokenFingerprint: 'changed' }), params, staticData })).toBeNull();
-		expect(server.logins).toHaveLength(2);
+		expect(server.logins).toHaveLength(8);
 		expect(staticData.signInPause).toBeUndefined();
 	});
 

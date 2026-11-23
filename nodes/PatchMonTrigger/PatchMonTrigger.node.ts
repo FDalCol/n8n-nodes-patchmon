@@ -29,7 +29,14 @@ interface TriggerState {
 	event?: EventName;
 	initialized?: boolean;
 	seen?: string[];
+	/** New Security Updates: per hashed host ID, the fingerprint of its updates and their short hashes. */
+	hosts?: Record<string, HostUpdates>;
 	signInPause?: SignInPause;
+}
+
+interface HostUpdates {
+	f: string;
+	p: string[];
 }
 
 /** Hashes only: never the password. */
@@ -37,42 +44,53 @@ interface SignInPause {
 	status: 401 | 429;
 	account: string;
 	session: string;
-	until?: string;
-	reported: boolean;
+	until: string;
+	/** 401: consecutive failed sign-ins, for the growing wait. */
+	failures?: number;
+	/** 429: the error was already reported for this credential. */
+	reported?: boolean;
 }
 
 const MAX_HOSTS = 1000;
 const RUNS_PER_POLL = 100;
+/** Bounds the New Security Updates state: hosts kept and package hashes per host. */
+const MAX_STATE_HOSTS = 2000;
+const MAX_KEYS_PER_HOST = 1000;
 const DEFAULT_SIGN_IN_WAIT_SECONDS = 60;
+const FIRST_401_WAIT_SECONDS = 60 * 60;
 const MAX_SIGN_IN_WAIT_SECONDS = 24 * 60 * 60;
 const SESSION_EVENTS: EventName[] = ['patchRunFinished', 'patchRunFailed'];
 
 /**
- * A wrong password (401) is not retried until the credential changes; a 429 waits as long as
- * PatchMon asks. Otherwise every poll would sign in again and keep PatchMon's sign-in lockout
- * active for the service user.
+ * Otherwise every poll would sign in again and keep PatchMon's sign-in lockout active. After a
+ * 401 a changed credential (new stored token) is tried at once.
  */
 export function signInPaused(pause: SignInPause, raw: ICredentialDataDecryptedObject, now: number): boolean {
 	const identity = signInIdentity(raw);
 	if (!identity || identity.account !== pause.account) return false;
-	if (pause.status === 401) return identity.session === pause.session;
-	return pause.until !== undefined && now < Date.parse(pause.until);
+	if (pause.status === 401 && identity.session !== pause.session) return false;
+	return now < Date.parse(pause.until);
 }
 
-function pauseAfter(failure: SignInFailure, raw: ICredentialDataDecryptedObject, previous: SignInPause | undefined, now: number): SignInPause | undefined {
+/** 401: 1 h, doubled after each failed attempt up to 24 h. 429: as long as PatchMon asks. */
+export function pauseAfter(
+	failure: SignInFailure,
+	raw: ICredentialDataDecryptedObject,
+	previous: SignInPause | undefined,
+	now: number,
+): SignInPause | undefined {
 	const identity = signInIdentity(raw);
 	if (!identity || (failure.signInStatus !== 401 && failure.signInStatus !== 429)) return undefined;
 	const status = failure.signInStatus;
-	const wait = Math.min(failure.retryAfterSeconds ?? DEFAULT_SIGN_IN_WAIT_SECONDS, MAX_SIGN_IN_WAIT_SECONDS);
-	const reported =
+	const same =
 		previous !== undefined && previous.status === status && previous.account === identity.account && previous.session === identity.session;
-	return {
-		status,
-		account: identity.account,
-		session: identity.session,
-		until: status === 429 ? new Date(now + wait * 1000).toISOString() : undefined,
-		reported,
-	};
+	if (status === 401) {
+		const failures = (same ? (previous.failures ?? 0) : 0) + 1;
+		const wait = Math.min(FIRST_401_WAIT_SECONDS * 2 ** Math.min(failures - 1, 16), MAX_SIGN_IN_WAIT_SECONDS);
+		return { status, account: identity.account, session: identity.session, until: new Date(now + wait * 1000).toISOString(), failures };
+	}
+	const wait = Math.min(failure.retryAfterSeconds ?? DEFAULT_SIGN_IN_WAIT_SECONDS, MAX_SIGN_IN_WAIT_SECONDS);
+	return { status, account: identity.account, session: identity.session, until: new Date(now + wait * 1000).toISOString(), reported: same };
 }
 
 interface Snapshot {
@@ -204,6 +222,7 @@ export class PatchMonTrigger implements INodeType {
 		const firstRun = !state.initialized;
 		let client: PatchMonClient | undefined;
 		let snapshot: Snapshot;
+		let retryNote = '';
 		try {
 			client = await PatchMonClient.create(this);
 			const filters = readFilters(this, client);
@@ -227,15 +246,20 @@ export class PatchMonTrigger implements INodeType {
 				const raw = await this.getCredentials(CREDENTIAL_NAME);
 				const pause = pauseAfter(failure, raw, state.signInPause, Date.now());
 				if (pause) {
-					state.signInPause = { ...pause, reported: true };
-					// Reported once: a later failure for the same status and credential stays silent
-					if (pause.reported) return null;
+					// A 429 is reported once per credential; every failed 401 attempt is reported
+					if (pause.status === 429 && pause.reported) {
+						state.signInPause = pause;
+						return null;
+					}
+					state.signInPause = pause.status === 429 ? { ...pause, reported: true } : pause;
+					retryNote = `Next sign-in attempt after ${pause.until}.`;
 				}
 			}
 			const e = error as { message?: string; description?: string };
 			const redact = (s: string) => (client ? client.redact(s) : redactString(s));
+			const description = [e?.description ? redact(e.description) : '', retryNote].filter(Boolean).join(' ');
 			throw new NodeOperationError(this.getNode(), redact(e?.message ?? 'Polling failed'), {
-				description: e?.description ? redact(e.description) : undefined,
+				description: description || undefined,
 			});
 		}
 
@@ -280,7 +304,10 @@ function hostFields(host: IDataObject): IDataObject {
 	};
 }
 
-/** Deduplicated by host, package and available version. */
+/**
+ * Per host, a fingerprint of its sorted security updates (package and available version). When
+ * it changes, the event lists the updates the host did not have at the previous check.
+ */
 async function pollSecurityUpdates(
 	this: IPollFunctions,
 	client: PatchMonClient,
@@ -295,27 +322,20 @@ async function pollSecurityUpdates(
 		.filter((h) => Number(h.security_updates_count) > 0)
 		.sort((a, b) => Number(b.security_updates_count) - Number(a.security_updates_count))
 		.slice(0, maxHosts);
-	const previous = new Set(state.seen ?? []);
-	// Hosts without security updates have none pending: their old keys are dropped, so an
-	// update that comes back later fires again
-	const checked = new Set<string>(
-		selected.filter((h) => !(Number(h.security_updates_count) > 0)).map((h) => stateKey(String(h.id).toLowerCase())),
-	);
-	const current: string[] = [];
+	const previous = state.hosts ?? {};
+	const next: Record<string, HostUpdates> = {};
 	const items: IDataObject[] = [];
 	const sample: IDataObject[] = [];
 	for (const host of hosts) {
 		const hostKey = stateKey(String(host.id).toLowerCase());
 		const answer = await getHostPackages(client, String(host.id), true);
 		if (!answer) continue;
-		checked.add(hostKey);
-		const updates = securityUpdates(answer.packages);
-		const fresh: IDataObject[] = [];
-		for (const pkg of updates) {
-			const key = `${hostKey}:${stateKey(`${String(pkg.name)}|${String(pkg.available_version ?? '')}`)}`;
-			current.push(key);
-			if (!previous.has(key)) fresh.push(pkg);
-		}
+		const updates = securityUpdates(answer.packages)
+			.map((pkg) => ({ pkg, key: stateKey(`${String(pkg.name)}|${String(pkg.available_version ?? '')}`).slice(0, 8) }))
+			.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+		if (!updates.length) continue;
+		const fingerprint = stateKey(updates.map((u) => u.key).join(','));
+		next[hostKey] = { f: fingerprint, p: updates.slice(0, MAX_KEYS_PER_HOST).map((u) => u.key) };
 		const item = (list: IDataObject[]): IDataObject => ({
 			event: 'newSecurityUpdates',
 			...hostFields(host),
@@ -328,13 +348,22 @@ async function pollSecurityUpdates(
 			})),
 			timestamp: new Date().toISOString(),
 		});
-		if (updates.length && !sample.length) sample.push(item(updates));
+		if (!sample.length) sample.push(item(updates.map((u) => u.pkg)));
+		const before = previous[hostKey];
+		if (before?.f === fingerprint) continue;
+		const known = new Set(before?.p ?? []);
+		const fresh = updates.filter((u) => !known.has(u.key)).map((u) => u.pkg);
 		if (fresh.length) items.push(item(fresh));
 	}
 	if (!manual) {
-		// Keys of hosts not read in this poll (filtered out or over the limit) are kept
-		const kept = [...previous].filter((k) => !checked.has(k.split(':')[0]));
-		state.seen = [...kept, ...current].slice(-MAX_STATE_ENTRIES);
+		// Hosts still with updates but not read in this poll (over Max Hosts Per Poll) keep their
+		// entry; hosts without updates or no longer selected are dropped, so later updates fire
+		const withUpdates = new Set(selected.filter((h) => Number(h.security_updates_count) > 0).map((h) => stateKey(String(h.id).toLowerCase())));
+		for (const [key, value] of Object.entries(previous)) {
+			if (!(key in next) && withUpdates.has(key) && Object.keys(next).length < MAX_STATE_HOSTS) next[key] = value;
+		}
+		state.hosts = next;
+		delete state.seen;
 	}
 	return { items: manual || firstRun ? [] : items, sample };
 }
