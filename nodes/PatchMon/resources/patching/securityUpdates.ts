@@ -52,16 +52,6 @@ function skipped(host: IDataObject, reason: SkipReason, message: string, extra: 
 	return entry(host, 'skipped', { reason, message, ...extra });
 }
 
-function isFatal(ctx: OperationContext, error: unknown): boolean {
-	const message = String((error as Error)?.message ?? '');
-	return (
-		ctx.client.lastSignInFailure !== undefined ||
-		ctx.client.isCancelled() ||
-		/^PatchMon API error (401|403)\b/.test(message) ||
-		/needs the service user/.test(message)
-	);
-}
-
 function errorMessage(ctx: OperationContext, error: unknown): string {
 	return ctx.client.redact(String((error as Error)?.message ?? 'Unknown error')).slice(0, 1000);
 }
@@ -146,14 +136,8 @@ export async function patchSecurityUpdates(ctx: OperationContext): Promise<IData
 				results.push(skipped(host, 'no_security_updates', 'No security update with a valid package name', { not_included: plan.notIncluded }));
 				continue;
 			}
-			let detail: IDataObject | undefined;
-			try {
-				detail = await getHostDetail(client, id);
-			} catch (error) {
-				if (isFatal(ctx, error)) throw new NodeOperationError(client.node, error as Error);
-				results.push(entry(host, 'error', { message: errorMessage(ctx, error) }));
-				continue;
-			}
+			// Any failure here stops the node: nothing has been started yet
+			const detail = await getHostDetail(client, id);
 			if (!detail) {
 				results.push(entry(host, 'error', { message: 'Host not found in PatchMon' }));
 				continue;

@@ -145,7 +145,7 @@ export async function runCredentialTest(
 		headers: req.headers as Record<string, string>,
 		disableFollowRedirect: req.disableFollowRedirect,
 		maxResponseBodyBytes: req.maxResponseBodyBytes,
-		timeout: 5000,
+		timeout: req.timeout,
 	};
 	try {
 		await httpRequestWithAuthentication(TEST_NODE, stored, options, { ...form });

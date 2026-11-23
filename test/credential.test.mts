@@ -37,7 +37,7 @@ describe('credential', () => {
 			'sessionPermissions',
 		]);
 		expect(credentialType.name).toBe('patchMonApi');
-		expect(byName.sessionPermissions).toMatchObject({ type: 'hidden', default: '' });
+		expect(byName.sessionPermissions).toMatchObject({ type: 'hidden', default: '', typeOptions: { password: true } });
 		expect(credentialType.displayName).toBe('PatchMon API');
 		expect(byName.tokenSecret.typeOptions).toEqual({ password: true });
 		expect(byName.password.typeOptions).toEqual({ password: true });
@@ -95,6 +95,7 @@ describe('credential', () => {
 		expect(req.method).toBe('GET');
 		expect(req.disableFollowRedirect).toBe(true);
 		expect(req.maxResponseBodyBytes).toBe(16 * 1024 * 1024);
+		expect(req.timeout).toBe(30_000);
 		expect(evalCredentialExpression(req.baseURL, { baseUrl: 'https://pm.example.com//' })).toBe('https://pm.example.com');
 		for (const bad of ['ftp://x', 'http://u:p@x', 'http://x/?a=1', 'http://x/#f', 'javascript:alert(1)', '']) {
 			expect(String(evalCredentialExpression(req.baseURL, { baseUrl: bad })), bad).toMatch(/\.invalid$/);

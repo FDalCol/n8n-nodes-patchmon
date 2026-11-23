@@ -13,6 +13,7 @@ import {
 
 import {
 	credentialSecrets,
+	credentialToken,
 	findSignInError,
 	hasPermission,
 	hasServiceUser,
@@ -75,7 +76,8 @@ export class PatchMonClient {
 	/** Removed from error messages only (a short password would corrupt ordinary output data). */
 	private readonly errorSecrets: string[] = [];
 
-	private renewed = false;
+	/** Without a usable stored token the first session request signs in: no second sign-in then. */
+	private renewed: boolean;
 
 	private permissions?: IDataObject;
 
@@ -90,6 +92,7 @@ export class PatchMonClient {
 		private raw: ICredentialDataDecryptedObject,
 	) {
 		this.baseUrl = normalizeBaseUrl(raw.baseUrl);
+		this.renewed = credentialToken(raw) === '';
 		this.addSecrets(raw);
 	}
 

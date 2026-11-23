@@ -61,6 +61,21 @@ describe('service user session', () => {
 		expect(ids[1]).toBe(ids[0]);
 	});
 
+	it('signs in at most once per execution, also when PatchMon refuses the new token', async () => {
+		const expired = () => ({ status: 401, raw: '{"error":"Session expired"}\n' });
+		server.on('GET', '/api/v1/patching/runs', expired);
+		server.on('GET', '/api/v1/auth/profile', expired);
+		// No stored token: the first request signs in, a 401 afterwards must not sign in again
+		const fresh = credentials(server);
+		const err = await runNodeError({ credentials: fresh, params: [getRuns, getRuns] });
+		expect(err.message).toBe('PatchMon API error 401: Session expired');
+		expect(server.logins).toHaveLength(1);
+		// A stored token that PatchMon revoked: one new sign-in, then the error
+		server.revokeSessions();
+		await runNodeError({ credentials: fresh, params: [getRuns, getRuns] });
+		expect(server.logins).toHaveLength(2);
+	});
+
 	it('makes one sign-in attempt per execution when it fails', async () => {
 		const err = await runNodeError({ credentials: credentials(server, { password: 'wrong-password' }), params: [getRuns, getRuns, getRuns] });
 		expect(err.message).toMatch(/rejected the service user's username or password \(401\)/);

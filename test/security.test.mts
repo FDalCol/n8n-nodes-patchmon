@@ -60,6 +60,15 @@ describe('Custom API Call', () => {
 			[{ path: '/api/v1/api/hosts%2f..' }, /Encoded path separators or traversal/],
 			[{ path: '/api/v1/api/%68osts' }, /Encoded path separators or traversal/],
 			[{ path: '/api/v1/api/hosts?x=1' }, /query string/],
+			[{ path: '/api/v1/api/%252e%252e/patching/runs' }, /Encoded path separators or traversal/],
+			[{ path: '/api/v1/api/%c0%ae%c0%ae/patching/runs' }, /Encoded path separators or traversal/],
+			[{ path: '/api/v1/api/hosts;x=1' }, /forbidden characters/],
+			[{ path: '/api/v1/api/..;/patching/runs' }, /forbidden characters/],
+			[{ path: '/api/v1/api/hosts%3bx' }, /Encoded path separators or traversal/],
+			[{ path: '/api/v1/api/%2e%2e%2fpatching' }, /Encoded path separators or traversal/],
+			[{ path: '\\\\evil.example\\api' }, /forbidden characters/],
+			[{ access: 'session', path: '/api/v2/patching/runs' }, /Session paths must/],
+			[{ access: 'session', path: '/API/v1/patching/runs' }, /Session paths must/],
 			[{ path: '/api/v1/patching/runs' }, /Integration API paths must start with \/api\/v1\/api\//],
 			[{ path: '/health' }, /Integration API paths must start/],
 			[{ access: 'session', path: '/api/v1/api/hosts' }, /Session paths must/],
@@ -136,6 +145,24 @@ describe('secrets', () => {
 			for (const secret of [TOKEN_KEY, TOKEN_SECRET, PASSWORD, String(stored.sessionToken)]) expect(url).not.toContain(secret);
 		}
 		expect(server.crossedCredentials).toEqual([]);
+	});
+
+	it('redaction stays linear on hostile text (no ReDoS)', () => {
+		const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIn0.abcdefghijklmnop';
+		for (const hostile of [
+			'eyJ'.repeat(1_000_000),
+			'password="'.repeat(300_000),
+			'Bearer '.repeat(400_000),
+			'patchmon_ae_'.repeat(250_000),
+			`${'a'.repeat(4000)}.`.repeat(700),
+		]) {
+			const started = Date.now();
+			redactValue({ description: hostile });
+			expect(Date.now() - started, hostile.slice(0, 20)).toBeLessThan(1500);
+		}
+		for (const wrapped of [jwt, `token ${jwt}`, `x=${jwt}`, `(${jwt})`, `"${jwt}"`]) {
+			expect(redactString(wrapped)).not.toContain('eyJzdWIi');
+		}
 	});
 
 	it('redaction patterns', () => {

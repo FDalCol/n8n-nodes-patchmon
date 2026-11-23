@@ -96,6 +96,7 @@ export class PatchMonApi implements ICredentialType {
 			displayName: 'Session Permissions',
 			name: 'sessionPermissions',
 			type: 'hidden',
+			typeOptions: { password: true },
 			// Read at sign-in, checked by the credential test
 			default: '',
 		},
@@ -137,6 +138,7 @@ export class PatchMonApi implements ICredentialType {
 				'X-N8n-PatchMon-Credential-Test': '1',
 			},
 			disableFollowRedirect: true,
+			timeout: 30_000,
 			maxResponseBodyBytes: 16 * 1024 * 1024,
 		},
 		rules: [

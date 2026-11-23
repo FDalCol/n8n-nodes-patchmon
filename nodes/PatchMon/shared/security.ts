@@ -245,7 +245,8 @@ export const REDACTED = '[REDACTED]';
 // Every pattern is bounded so that redaction stays linear on large untrusted text (no ReDoS).
 const SECRET_PATTERNS: RegExp[] = [
 	/patchmon_ae_[A-Za-z0-9_-]{4,256}/g,
-	/eyJ[A-Za-z0-9_-]{8,4096}\.[A-Za-z0-9_-]{8,4096}\.[A-Za-z0-9_-]{8,1024}/g,
+	// Starts only at a word boundary: inside a long run of "eyJeyJ…" every other start fails at once
+	/(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,4096}\.[A-Za-z0-9_-]{8,4096}\.[A-Za-z0-9_-]{8,1024}/g,
 	/((?:Bearer|Basic)\s{1,8})[^\s"',;]{1,4096}/gi,
 	/("?(?:password|token|secret|ticket|refresh_token|tfaTicket|token_secret)"?\s{0,8}[:=]\s{0,8})("[^"\n]{0,4096}"|[^\s,;&}"]{1,4096})/gi,
 	/(Authorization\s{0,8}[:=]\s{0,8})[^\r\n,;"]{1,4096}/gi,

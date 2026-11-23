@@ -68,7 +68,7 @@ describe('Trigger Patch', () => {
 		for (const [params, message] of cases) {
 			expect((await runNodeError({ credentials: credentials(server), params: trigger(params) })).message).toMatch(message);
 		}
-		expect(server.triggers).toHaveLength(0);
+		expect(server.requests).toHaveLength(0);
 	});
 
 	it('Skip If Run Active: skips a host with a scheduled or waiting run without calling trigger', async () => {
@@ -172,7 +172,7 @@ const security = (extra: Record<string, unknown> = {}) => ({
 describe('Patch Security Updates', () => {
 	it('dry run: starts nothing and lists what would be started or skipped', async () => {
 		const out = await runNodeJson({ credentials: credentials(server), params: security({ dryRun: true }) });
-		expect(server.triggers).toHaveLength(0);
+		expect(server.requests.filter((r) => r.method !== 'GET').map((r) => r.path)).toEqual(['/api/v1/auth/login']);
 		const byHost = Object.fromEntries(out.map((r) => [r.host_id, r]));
 		expect(byHost[HOST_A]).toMatchObject({ status: 'would_start', packages: ['libssl3', 'openssl'], package_count: 2, dry_run: true });
 		expect(byHost[HOST_B]).toMatchObject({ status: 'would_start', packages: ['openssh-server'] });
@@ -256,6 +256,16 @@ describe('Patch Security Updates', () => {
 		expect(out.map((r) => r.host_id).sort()).toEqual([HOST_ARCH, HOST_CLEAN].sort());
 		const err = await runNodeError({ credentials: credentials(server), params: security({ securityOptions: { maxHosts: 2 } }) });
 		expect(err.message).toMatch(/3 hosts have pending security updates, more than Max Hosts \(2\): nothing was started/);
+		expect(server.triggers).toHaveLength(0);
+	});
+
+	it('fails before starting anything when a session read fails', async () => {
+		server.on('GET', '/api/v1/hosts/{id}', (_r, p) => (p.id === HOST_B ? { status: 500, json: { error: 'Failed to load host' } } : { json: { id: p.id, package_manager: 'apt' } }));
+		const err = await runNodeError({ credentials: credentials(server), params: security() });
+		expect(err.message).toBe('PatchMon API error 500: Failed to load host');
+		expect(server.triggers).toHaveLength(0);
+		server.on('GET', '/api/v1/patching/runs/active', () => ({ status: 503, json: { error: 'Service Unavailable' } }));
+		expect((await runNodeError({ credentials: credentials(server), params: security() })).message).toMatch(/503/);
 		expect(server.triggers).toHaveLength(0);
 	});
 
